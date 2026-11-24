@@ -68,8 +68,8 @@ window.AURA_CONFIG = {
       description: "Autonomous short-form viral reel generator & multi-platform publisher for Instagram Reels, YouTube Shorts, and TikTok.",
       tech: ["AI AUTOMATION", "JAVASCRIPT", "FFMPEG", "GROQ LLM"],
       icon: "assets/icons/clipper.svg",
-      hasProfile: false,
-      profileUrl: "https://github.com/darkangle4022211-cpu/clipper",
+      hasProfile: true,
+      profileUrl: "https://darkangle4022211-cpu.github.io/clipper/",
       githubUrl: "https://github.com/darkangle4022211-cpu/clipper",
       themeColor: "#863BFF"
     },

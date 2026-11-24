@@ -40,11 +40,17 @@
 
   // State Variables
   const frames = new Array(frameCount);
+  const frameBitmaps = new Array(frameCount);
+  const frameStatus = new Uint8Array(frameCount); // 0=idle, 1=loading, 2=loaded, 3=failed
+  const bitmapDecoding = new Uint8Array(frameCount);
+  const KEYFRAME_STEP = 8;
+  const MAX_MOBILE_BITMAPS = 44;
   let framesLoadedCount = 0;
   let isProceduralFallback = false;
   let targetS = 0;
   let smoothedS = 0;
   let currentFrameFloat = 0;
+  let lastDesiredFrameIdx = 0;
   let lastDrawnFrame = -1;
   let isRafRunning = false;
   let lastRafTime = performance.now();
@@ -418,8 +424,20 @@
   }
 
   /* --------------------------------------------------------------------------
-     4. CANVAS SIZING & DPR RESOLUTION
+     4. CANVAS SIZING, DPR RESOLUTION & MOBILE BITMAP CACHE
      -------------------------------------------------------------------------- */
+  function clearFrameBitmaps() {
+    for (let i = 0; i < frameBitmaps.length; i++) {
+      if (frameBitmaps[i]) {
+        try {
+          if (typeof frameBitmaps[i].close === "function") frameBitmaps[i].close();
+        } catch (e) {}
+        frameBitmaps[i] = null;
+      }
+      bitmapDecoding[i] = 0;
+    }
+  }
+
   function resizeCanvas() {
     const mobile = isMobileLayout();
     const dpr = Math.min(window.devicePixelRatio || 1, mobile ? 1.25 : 2.0);
@@ -430,16 +448,127 @@
     if (canvas.width !== w || canvas.height !== h) {
       canvas.width = w;
       canvas.height = h;
+      clearFrameBitmaps();
     }
 
     ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "high";
+    ctx.imageSmoothingQuality = mobile ? "medium" : "high";
     drawCurrentFrame(true);
   }
 
+  function isKeyframeIndex(idx) {
+    return idx === 0 || idx === frameCount - 1 || idx === frameMap[1][1] || (idx % KEYFRAME_STEP === 0);
+  }
+
+  function evictDistantBitmaps(centerIdx) {
+    let activeCount = 0;
+    for (let i = 0; i < frameBitmaps.length; i++) {
+      if (frameBitmaps[i]) activeCount++;
+    }
+    if (activeCount <= MAX_MOBILE_BITMAPS) return;
+
+    // Close farthest non-keyframes first until under cap
+    while (activeCount > MAX_MOBILE_BITMAPS) {
+      let bestIdx = -1;
+      let bestDist = -1;
+      for (let i = 0; i < frameBitmaps.length; i++) {
+        if (!frameBitmaps[i] || isKeyframeIndex(i)) continue;
+        const dist = Math.abs(i - centerIdx);
+        if (dist > bestDist) {
+          bestDist = dist;
+          bestIdx = i;
+        }
+      }
+      if (bestIdx === -1) break;
+      try {
+        if (typeof frameBitmaps[bestIdx].close === "function") frameBitmaps[bestIdx].close();
+      } catch (e) {}
+      frameBitmaps[bestIdx] = null;
+      activeCount--;
+    }
+  }
+
+  function decodeBitmapForFrame(index, centerIdx) {
+    if (!isMobileLayout() || typeof createImageBitmap !== "function") return;
+    const img = frames[index];
+    if (!img || !img.naturalWidth || frameBitmaps[index] || bitmapDecoding[index]) return;
+
+    const cw = canvas.width;
+    const ch = canvas.height;
+    if (!cw || !ch) return;
+
+    bitmapDecoding[index] = 1;
+    const imgW = img.naturalWidth;
+    const imgH = img.naturalHeight;
+    const coverScale = Math.max(cw / imgW, ch / imgH);
+    const zoomHeadroom = (index >= frameCount - 6) ? 1.2 : 1.0;
+    const destW = Math.min(imgW, Math.max(64, Math.round(imgW * coverScale * zoomHeadroom)));
+    const destH = Math.min(imgH, Math.max(64, Math.round(destW * (imgH / imgW))));
+
+    const finishDecode = (bm) => {
+      bitmapDecoding[index] = 0;
+      if (!bm) return;
+      frameBitmaps[index] = bm;
+      evictDistantBitmaps(centerIdx);
+      if (index === lastDesiredFrameIdx && lastDrawnFrame !== index) {
+        drawCurrentFrame(true);
+      }
+    };
+
+    try {
+      createImageBitmap(img, {
+        resizeWidth: destW,
+        resizeHeight: destH,
+        resizeQuality: "high"
+      })
+        .then(finishDecode)
+        .catch(() => {
+          createImageBitmap(img).then(finishDecode).catch(() => {
+            bitmapDecoding[index] = 0;
+          });
+        });
+    } catch (e) {
+      createImageBitmap(img).then(finishDecode).catch(() => {
+        bitmapDecoding[index] = 0;
+      });
+    }
+  }
+
+  function ensureBitmapsAround(centerIdx) {
+    if (!isMobileLayout() || typeof createImageBitmap !== "function") return;
+    // Decode immediate center + lookahead/lookbehind window off main thread
+    const offsets = [0, 1, -1, 2, -2, 3, 4, -3, 5, 6, -4, 7, 8];
+    for (let i = 0; i < offsets.length; i++) {
+      const idx = centerIdx + offsets[i];
+      if (idx >= 0 && idx < frameCount && frames[idx] && !frameBitmaps[idx]) {
+        decodeBitmapForFrame(idx, centerIdx);
+      }
+    }
+  }
+
   /* --------------------------------------------------------------------------
-     5. FRAME PRELOADER & PROCEDURAL FALLBACK
+     5. ADAPTIVE FRAME LOADER, NETWORK RECOVERY & KEYFRAME STREAMING
      -------------------------------------------------------------------------- */
+  let urgentQueue = [];
+  let stagedQueue = [];
+  let activeWorkers = 0;
+  let retryScheduled = false;
+
+  function getNetworkProfile() {
+    const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    const saveData = Boolean(conn && conn.saveData);
+    const eff = conn && conn.effectiveType ? conn.effectiveType : "";
+    const downlink = conn && typeof conn.downlink === "number" ? conn.downlink : 0;
+
+    if (saveData || eff === "slow-2g" || eff === "2g" || (downlink > 0 && downlink < 1.2)) {
+      return { concurrency: 2, timeoutMs: 22000, maxRetries: 4, tier: "slow" };
+    }
+    if (eff === "3g" || (downlink > 0 && downlink < 3.5)) {
+      return { concurrency: 3, timeoutMs: 16000, maxRetries: 4, tier: "medium" };
+    }
+    return { concurrency: isMobileLayout() ? 4 : 6, timeoutMs: 12000, maxRetries: 3, tier: "fast" };
+  }
+
   function getFrameUrl(index) {
     const portrait = isPortraitMedia();
     const template = (portrait && cfg.FRAME_PATH_MOBILE) ? cfg.FRAME_PATH_MOBILE : (cfg.FRAME_PATH || "frames/frame_{n}.webp");
@@ -447,17 +576,21 @@
     return template.replace("{n}", num) + "?v=8";
   }
 
-  function loadImageWithRetry(src, isRetry = false) {
+  function fetchSingleImage(src, timeoutMs) {
     return new Promise((resolve, reject) => {
       const img = new Image();
+      img.decoding = "async";
       let settled = false;
 
       const timer = setTimeout(() => {
         if (!settled) {
           settled = true;
+          img.onload = null;
+          img.onerror = null;
+          img.src = ""; // abort hung socket cleanly on unstable networks
           reject(new Error("Timeout loading " + src));
         }
-      }, 1000);
+      }, timeoutMs);
 
       img.onload = () => {
         if (settled) return;
@@ -474,46 +607,179 @@
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        if (!isRetry) {
-          loadImageWithRetry(src, true).then(resolve).catch(reject);
-        } else {
-          reject(err || new Error("Failed to load " + src));
-        }
+        reject(err || new Error("Failed to load " + src));
       };
 
       img.src = src;
     });
   }
 
-  async function preloadFrames() {
-    const minHoldPromise = new Promise(resolve => setTimeout(resolve, 600));
+  async function loadImageWithRetry(index, customProfile) {
+    if (frameStatus[index] === 2 && frames[index]) return frames[index];
+    if (frameStatus[index] === 1) return null;
 
-    try {
-      const firstImg = await loadImageWithRetry(getFrameUrl(0));
-      frames[0] = firstImg;
-      framesLoadedCount = 1;
-      updatePreloader(30);
+    const profile = customProfile || getNetworkProfile();
+    const src = getFrameUrl(index);
+    const delays = [500, 1200, 2500, 4000];
+    frameStatus[index] = 1;
 
-      const initialBuffer = Math.min(8, frameCount);
-      const initialPromises = [];
-      for (let i = 1; i < initialBuffer; i++) {
-        const idx = i;
-        initialPromises.push(
-          loadImageWithRetry(getFrameUrl(idx))
-            .then(img => {
-              frames[idx] = img;
-              framesLoadedCount++;
-            })
-            .catch(() => {})
-        );
+    for (let attempt = 0; attempt <= profile.maxRetries; attempt++) {
+      try {
+        const img = await fetchSingleImage(src, profile.timeoutMs);
+        frames[index] = img;
+        frameStatus[index] = 2;
+        framesLoadedCount++;
+
+        // Recover gracefully if earlier outage forced procedural fallback
+        if (isProceduralFallback) {
+          isProceduralFallback = false;
+          if (devNotice) devNotice.classList.remove("visible");
+          drawCurrentFrame(true);
+        }
+
+        if (isMobileLayout() && Math.abs(index - lastDesiredFrameIdx) <= 10) {
+          decodeBitmapForFrame(index, lastDesiredFrameIdx);
+        }
+        if (Math.abs(index - lastDesiredFrameIdx) <= 4 && lastDrawnFrame !== lastDesiredFrameIdx) {
+          drawCurrentFrame(true);
+        }
+        return img;
+      } catch (err) {
+        if (attempt < profile.maxRetries) {
+          const waitMs = delays[Math.min(attempt, delays.length - 1)];
+          await new Promise(res => setTimeout(res, waitMs));
+        }
       }
-      await Promise.all(initialPromises);
-      updatePreloader(85);
-    } catch (e) {
-      enableProceduralFallback();
     }
 
-    updatePreloader(100);
+    frameStatus[index] = 3;
+    throw new Error("Retries exhausted for frame " + index);
+  }
+
+  function buildKeyframePriorityList() {
+    const added = new Uint8Array(frameCount);
+    const list = [];
+    const pushUnique = (idx) => {
+      if (idx >= 0 && idx < frameCount && !added[idx] && frameStatus[idx] !== 2) {
+        added[idx] = 1;
+        list.push(idx);
+      }
+    };
+
+    // Pass 1: Keyframes across entire narrative arc + cigar moment + end frame
+    pushUnique(0);
+    pushUnique(frameCount - 1);
+    if (Array.isArray(frameMap) && frameMap[1]) pushUnique(frameMap[1][1]);
+    for (let step = 8; step >= 1; step = Math.floor(step / 2)) {
+      for (let i = 0; i < frameCount; i += step) {
+        pushUnique(i);
+      }
+    }
+    return list;
+  }
+
+  function boostFramePriority(centerIdx) {
+    if (frameStatus[centerIdx] === 2) return;
+    const windowOffsets = [0, 1, -1, 2, -2, 3, 4, 5, 6];
+    for (let i = windowOffsets.length - 1; i >= 0; i--) {
+      const idx = centerIdx + windowOffsets[i];
+      if (idx >= 0 && idx < frameCount) {
+        if (frameStatus[idx] === 3 && navigator.onLine !== false) {
+          frameStatus[idx] = 0;
+        }
+        if (frameStatus[idx] === 0 && !urgentQueue.includes(idx)) {
+          urgentQueue.unshift(idx);
+        }
+      }
+    }
+    runWorkerPool();
+  }
+
+  function popNextFrameIndex() {
+    while (urgentQueue.length > 0) {
+      const idx = urgentQueue.shift();
+      if (frameStatus[idx] === 0) return idx;
+    }
+    while (stagedQueue.length > 0) {
+      const idx = stagedQueue.shift();
+      if (frameStatus[idx] === 0) return idx;
+    }
+    return -1;
+  }
+
+  function runWorkerPool() {
+    const profile = getNetworkProfile();
+    while (activeWorkers < profile.concurrency && (urgentQueue.length > 0 || stagedQueue.length > 0)) {
+      activeWorkers++;
+      (async () => {
+        try {
+          while (true) {
+            const idx = popNextFrameIndex();
+            if (idx === -1) break;
+            try {
+              await loadImageWithRetry(idx, getNetworkProfile());
+            } catch (e) {}
+          }
+        } finally {
+          activeWorkers--;
+          if (urgentQueue.length === 0 && stagedQueue.length === 0 && activeWorkers === 0) {
+            scheduleFailedRetry();
+          }
+        }
+      })();
+    }
+  }
+
+  function scheduleFailedRetry() {
+    if (retryScheduled) return;
+    const hasFailed = frameStatus.some(s => s === 3);
+    if (!hasFailed) return;
+    retryScheduled = true;
+    setTimeout(() => {
+      retryScheduled = false;
+      resumePendingFrames();
+    }, 3000);
+  }
+
+  function resumePendingFrames() {
+    if (navigator.onLine === false) return;
+    let queuedAny = false;
+    for (let i = 0; i < frameCount; i++) {
+      if (frameStatus[i] === 3 || frameStatus[i] === 0) {
+        frameStatus[i] = 0;
+        queuedAny = true;
+      }
+    }
+    if (!queuedAny) return;
+    if (frameStatus[0] !== 2) {
+      urgentQueue.unshift(0);
+    }
+    stagedQueue = buildKeyframePriorityList();
+    runWorkerPool();
+  }
+
+  async function preloadFrames() {
+    const minHoldPromise = new Promise(resolve => setTimeout(resolve, 550));
+    const profile = getNetworkProfile();
+
+    try {
+      await loadImageWithRetry(0, profile);
+      updatePreloader(45);
+      drawCurrentFrame(true);
+
+      // Load only 2–4 crisp early keyframes before opening UI so weak connections never hang
+      const earlyIndices = profile.tier === "slow" ? [8, frameCount - 1] : [4, 8, 16, frameCount - 1];
+      const earlyPromise = Promise.allSettled(
+        earlyIndices.filter(idx => idx > 0 && idx < frameCount).map(idx => loadImageWithRetry(idx, profile))
+      );
+      const graceCap = new Promise(resolve => setTimeout(resolve, profile.tier === "slow" ? 1800 : 1200));
+      await Promise.race([earlyPromise, graceCap]);
+      updatePreloader(100);
+    } catch (e) {
+      enableProceduralFallback();
+      updatePreloader(100);
+    }
+
     await minHoldPromise;
     drawCurrentFrame(true);
 
@@ -521,24 +787,9 @@
     document.body.classList.remove("loading-locked");
     startRafLoop();
 
-    const streamBatchSize = 12;
-    for (let i = 8; i < frameCount; i += streamBatchSize) {
-      const batch = [];
-      for (let j = i; j < Math.min(i + streamBatchSize, frameCount); j++) {
-        const idx = j;
-        if (!frames[idx]) {
-          batch.push(
-            loadImageWithRetry(getFrameUrl(idx))
-              .then(img => {
-                frames[idx] = img;
-                framesLoadedCount++;
-              })
-              .catch(() => {})
-          );
-        }
-      }
-      await Promise.all(batch);
-    }
+    // Stream remaining frames across whole timeline via keyframe priority worker pool
+    stagedQueue = buildKeyframePriorityList();
+    runWorkerPool();
   }
 
   function updatePreloader(pct) {
@@ -643,10 +894,40 @@
   }
 
   /* --------------------------------------------------------------------------
-     7. CANVAS FRAME DRAWING (Cover Fit & Centered)
+     7. CANVAS FRAME DRAWING (Cover Fit, Nearest Keyframe & Bitmap Blit)
      -------------------------------------------------------------------------- */
+  function findNearestLoadedSource(targetIdx) {
+    const mobile = isMobileLayout();
+    const hasReady = (k) => {
+      if (k < 0 || k >= frameCount) return false;
+      if (mobile && frameBitmaps[k]) return true;
+      return Boolean(frames[k] && frames[k].naturalWidth);
+    };
+
+    let matchedIdx = -1;
+    if (hasReady(targetIdx)) {
+      matchedIdx = targetIdx;
+    } else {
+      for (let delta = 1; delta < frameCount; delta++) {
+        if (hasReady(targetIdx - delta)) {
+          matchedIdx = targetIdx - delta;
+          break;
+        }
+        if (hasReady(targetIdx + delta)) {
+          matchedIdx = targetIdx + delta;
+          break;
+        }
+      }
+    }
+    if (matchedIdx === -1) return null;
+    const source = (mobile && frameBitmaps[matchedIdx]) ? frameBitmaps[matchedIdx] : frames[matchedIdx];
+    return { idx: matchedIdx, source };
+  }
+
   function drawCurrentFrame(force = false) {
     const targetIdx = Math.max(0, Math.min(Math.round(currentFrameFloat), frameCount - 1));
+    lastDesiredFrameIdx = targetIdx;
+
     const cw = canvas.width;
     const ch = canvas.height;
     if (cw === 0 || ch === 0) return;
@@ -660,34 +941,38 @@
       return;
     }
 
-    if (!force && targetIdx === lastDrawnFrame) {
+    if (frameStatus[targetIdx] !== 2) {
+      boostFramePriority(targetIdx);
+    }
+    ensureBitmapsAround(targetIdx);
+
+    const resolved = findNearestLoadedSource(targetIdx);
+    if (!resolved || !resolved.source) {
+      renderProceduralScene(cw, ch, p);
       return;
     }
 
-    let img = frames[targetIdx];
-    if (!img || !img.naturalWidth) {
-      for (let k = targetIdx - 1; k >= 0; k--) {
-        if (frames[k] && frames[k].naturalWidth) {
-          img = frames[k];
-          break;
-        }
-      }
-      if (!img) img = frames[0];
+    if (!force && resolved.idx === lastDrawnFrame) {
+      return;
     }
-    if (img && img.naturalWidth) {
-      ctx.fillStyle = "#000000";
-      ctx.fillRect(0, 0, cw, ch);
 
-      const imgW = img.naturalWidth;
-      const imgH = img.naturalHeight;
-      const scale = Math.max(cw / imgW, ch / imgH);
-      const dw = imgW * scale;
-      const dh = imgH * scale;
+    const src = resolved.source;
+    const srcW = src.naturalWidth || src.width;
+    const srcH = src.naturalHeight || src.height;
+
+    if (srcW && srcH) {
+      const scale = Math.max(cw / srcW, ch / srcH);
+      const dw = srcW * scale;
+      const dh = srcH * scale;
       const dx = (cw - dw) * 0.5;
       const dy = (ch - dh) * 0.5;
 
-      ctx.drawImage(img, dx, dy, dw, dh);
-      lastDrawnFrame = targetIdx;
+      if (dx > 0 || dy > 0) {
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(0, 0, cw, ch);
+      }
+      ctx.drawImage(src, dx, dy, dw, dh);
+      lastDrawnFrame = resolved.idx;
     } else {
       renderProceduralScene(cw, ch, p);
     }
@@ -1135,10 +1420,22 @@
     });
   }
 
+  function registerOfflineCache() {
+    if (
+      "serviceWorker" in navigator &&
+      (location.protocol === "https:" ||
+        location.hostname === "localhost" ||
+        location.hostname === "127.0.0.1")
+    ) {
+      navigator.serviceWorker.register("sw.js").catch(() => {});
+    }
+  }
+
   /* --------------------------------------------------------------------------
      16. INITIALIZATION
      -------------------------------------------------------------------------- */
   function init() {
+    registerOfflineCache();
     initFilmGrain();
     hydrateContent();
     syncStageLayout(true);
@@ -1148,6 +1445,7 @@
     initHeroLantern();
 
     window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("online", resumePendingFrames, { passive: true });
     window.addEventListener("resize", () => {
       syncStageLayout(false);
       onScroll();

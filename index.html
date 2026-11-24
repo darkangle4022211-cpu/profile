@@ -5,9 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#000000">
   <meta name="color-scheme" content="dark">
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-  <meta http-equiv="Pragma" content="no-cache">
-  <meta http-equiv="Expires" content="0">
   <title>AURA — Cinematic Dossier</title>
   <meta name="description" content="Cinematic personal portfolio and dossier of work, systems engineering, and creative technology.">
   
@@ -21,13 +18,14 @@
   <!-- Inline SVG Amber-Dot Favicon -->
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='38' fill='%23E8A33D'/%3E%3C/svg%3E">
 
-  <!-- Google Fonts: Cormorant Garamond, Instrument Sans, IBM Plex Mono with font-display: swap -->
+  <!-- Non-blocking Google Fonts (renders immediately on slow/offline networks) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Sans:wght@400;500;600&display=swap" onload="this.onload=null;this.rel='stylesheet'">
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Sans:wght@400;500;600&display=swap"></noscript>
 
   <!-- Stylesheet -->
-  <link rel="stylesheet" href="css/style.css?v=17">
+  <link rel="stylesheet" href="css/style.css?v=18">
 </head>
 <body class="loading-locked">
 
@@ -211,10 +209,10 @@
   </div>
 
   <!-- Optional frames manifest written by tools/make_frames script -->
-  <script src="frames/manifest.js?v=17" onerror="this.onerror=null;"></script>
+  <script src="frames/manifest.js?v=18" onerror="this.onerror=null;"></script>
   <!-- Personal Configuration & Content -->
-  <script src="js/config.js?v=17"></script>
+  <script src="js/config.js?v=18"></script>
   <!-- Main Application Logic -->
-  <script src="js/main.js?v=17"></script>
+  <script src="js/main.js?v=18"></script>
 </body>
 </html>

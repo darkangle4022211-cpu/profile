@@ -229,7 +229,7 @@
     const isMobile = window.matchMedia("(max-aspect-ratio: 1/1)").matches;
     const template = (isMobile && cfg.FRAME_PATH_MOBILE) ? cfg.FRAME_PATH_MOBILE : (cfg.FRAME_PATH || "frames/frame_{n}.webp");
     const num = String(index + 1).padStart(3, "0");
-    return template.replace("{n}", num) + "?v=3";
+    return template.replace("{n}", num) + "?v=4";
   }
 
   function loadImageWithRetry(src, isRetry = false) {

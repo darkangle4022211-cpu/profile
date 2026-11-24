@@ -91,12 +91,12 @@ if not exist frames-m mkdir frames-m
 
 REM Step 3: Export Desktop & Mobile Frames
 echo.
-echo Step 3/3 (a): Generating desktop frames (1280px WebP, quality 72, curves & watermark mask)...
-ffmpeg -y -i "%FINAL_VIDEO%" -vf "scale=1280:-2,drawbox=x=iw-iw*%WATERMARK_W_PCT%:y=ih-ih*%WATERMARK_H_PCT%:w=iw*%WATERMARK_W_PCT%:h=ih*%WATERMARK_H_PCT%:color=black:t=fill,curves=all='0/0 0.06/0 1/1'" -c:v libwebp -quality 72 frames\frame_%%03d.webp
+echo Step 3/3 (a): Generating desktop frames (1920x1080 HD WebP, quality 90)...
+ffmpeg -y -i "%FINAL_VIDEO%" -vf "scale=1920:-2" -c:v libwebp -quality 90 frames\frame_%%03d.webp
 
 echo.
-echo Step 3/3 (b): Generating mobile frames (540px portrait WebP, quality 70, curves)...
-ffmpeg -y -i "%FINAL_VIDEO%" -vf "crop=ih*9/16:ih,scale=540:-2,curves=all='0/0 0.06/0 1/1'" -c:v libwebp -quality 70 frames-m\frame_%%03d.webp
+echo Step 3/3 (b): Generating mobile frames (1080px portrait WebP, quality 88)...
+ffmpeg -y -i "%FINAL_VIDEO%" -vf "crop=ih*9/16:ih,scale=1080:-2" -c:v libwebp -quality 88 frames-m\frame_%%03d.webp
 
 REM Count frames using PowerShell
 for /f %%c in ('powershell -NoProfile -Command "(Get-ChildItem frames\frame_*.webp).Count"') do set "FRAME_COUNT=%%c"

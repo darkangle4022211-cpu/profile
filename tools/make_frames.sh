@@ -75,10 +75,10 @@ if [ -f "$CLIP_B" ]; then
     -c:v libx264 -preset slow -crf 18 -pix_fmt yuv420p \
     "$FINAL_VIDEO"
 else
-  targetFps=15
-  cigarFrames=$(awk -v a="$durA" 'BEGIN { printf "%d\n", int(a * 0.75 * 15) }')
+  targetFps=24
+  cigarFrames=$(awk -v a="$durA" -v fps="$targetFps" 'BEGIN { printf "%d\n", int(a * 0.75 * fps) }')
   echo "Clip A duration: ${durA}s"
-  echo "Target FPS:      ${targetFps} fps"
+  echo "Target FPS:      ${targetFps} fps (Native Veo 24fps motion)"
 
   echo ""
   echo "Step 1/3: Conforming single clip into $FINAL_VIDEO..."
@@ -98,19 +98,19 @@ echo "Step 2/3: Cleaning existing frame sequences..."
 rm -f frames/frame_*.webp frames-m/frame_*.webp
 mkdir -p frames frames-m
 
-# Step 3: Export Desktop Frames with watermark mask & crushed blacks
+# Step 3: Export Desktop Frames with high-fidelity 1080p WebP
 echo ""
-echo "Step 3/3 (a): Generating desktop frames (1280px WebP, quality 72, curves & watermark mask)..."
+echo "Step 3/3 (a): Generating desktop frames (1920x1080 HD WebP, quality 90)..."
 ffmpeg -y -i "$FINAL_VIDEO" \
-  -vf "scale=1280:-2,drawbox=x=iw-iw*${WATERMARK_W_PCT}:y=ih-ih*${WATERMARK_H_PCT}:w=iw*${WATERMARK_W_PCT}:h=ih*${WATERMARK_H_PCT}:color=black:t=fill,curves=all='0/0 0.06/0 1/1'" \
-  -c:v libwebp -quality 72 \
+  -vf "scale=1920:-2" \
+  -c:v libwebp -quality 90 \
   frames/frame_%03d.webp
 
-# Step 3 (b): Export Mobile Frames (portrait 9:16 crop, 540px WebP, quality 70, curves)
-echo "Step 3/3 (b): Generating mobile frames (540px portrait WebP, quality 70, curves)..."
+# Step 3 (b): Export Mobile Frames (1080px portrait crop, quality 88)
+echo "Step 3/3 (b): Generating mobile frames (1080px portrait WebP, quality 88)..."
 ffmpeg -y -i "$FINAL_VIDEO" \
-  -vf "crop=ih*9/16:ih,scale=540:-2,curves=all='0/0 0.06/0 1/1'" \
-  -c:v libwebp -quality 70 \
+  -vf "crop=ih*9/16:ih,scale=1080:-2" \
+  -c:v libwebp -quality 88 \
   frames-m/frame_%03d.webp
 
 # Count output frames

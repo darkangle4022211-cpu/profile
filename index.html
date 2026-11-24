@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <meta name="color-scheme" content="dark">
+  <title>AURA — Cinematic Dossier</title>
+  <meta name="description" content="Cinematic personal portfolio and dossier of work, systems engineering, and creative technology.">
+  
+  <!-- Open Graph / Meta -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="AURA — Cinematic Dossier">
+  <meta property="og:description" content="Cinematic personal portfolio and dossier of work, systems engineering, and creative technology.">
+  <meta property="og:image" content="source/me.jpg">
+  <meta name="twitter:card" content="summary_large_image">
+  
+  <!-- Inline SVG Amber-Dot Favicon -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='38' fill='%23E8A33D'/%3E%3C/svg%3E">
+
+  <!-- Google Fonts: Cormorant Garamond, Instrument Sans, IBM Plex Mono with font-display: swap -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="css/style.css?v=2">
+</head>
+<body class="loading-locked">
+
+  <!-- Fixed Film Grain Overlay -->
+  <canvas id="grain-canvas" class="grain-animated" width="256" height="256" aria-hidden="true"></canvas>
+
+  <!-- Preloader Screen -->
+  <aside id="preloader" aria-label="Loading experience">
+    <div class="preloader-content">
+      <div id="preloader-name" class="preloader-title">AURA</div>
+      <div class="preloader-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div id="preloader-bar" class="preloader-bar"></div>
+      </div>
+      <div id="preloader-status" class="preloader-status">INITIALIZING 00%</div>
+    </div>
+  </aside>
+
+  <!-- Fallback Dev Notice for Missing Video Frames -->
+  <div id="dev-notice" class="dev-notice" role="status" aria-live="polite">
+    Notice: Add your frames to /frames/
+  </div>
+
+  <!-- Noscript Accessible Fallback -->
+  <noscript>
+    <div class="noscript-banner">
+      JavaScript is required for the interactive cinematic sequence. You may browse the dossier content directly below.
+    </div>
+  </noscript>
+
+  <!-- ACT 1: HERO SCENE (650vh) -->
+  <section id="hero" aria-label="Cinematic Sequence">
+    <div class="hero-sticky">
+      <!-- Full-bleed frame canvas -->
+      <canvas id="hero-canvas" aria-label="Cinematic character sequence"></canvas>
+      
+      <!-- Radial vignette to blend video edges into black -->
+      <div class="hero-vignette" aria-hidden="true"></div>
+
+      <!-- Scroll-Linked Narrative Typography Overlay -->
+      <div class="hero-overlay" aria-hidden="true">
+        <!-- Beat 0: Intro (0.00 - 0.20) -->
+        <div id="beat-0" class="beat beat-intro active">
+          <h1 id="hero-name" class="hero-name">HAMZA</h1>
+          <div id="hero-role" class="hero-role">CREATIVE TECHNOLOGIST &amp; SYSTEM ARCHITECT</div>
+          <div class="scroll-cue">
+            <div class="scroll-cue-track">
+              <div class="scroll-cue-dot"></div>
+            </div>
+            <span class="scroll-cue-text">Scroll</span>
+          </div>
+        </div>
+
+        <!-- Beat 1: Quote 1 (0.21 - 0.32) -->
+        <div id="beat-1" class="beat beat-quote beat-quote-1">
+          <p id="quote-1">Quiet hands build loud things.</p>
+        </div>
+
+        <!-- Beat 2: Quote 2 (0.34 - 0.45) -->
+        <div id="beat-2" class="beat beat-quote beat-quote-2">
+          <p id="quote-2">Details are where empires are decided.</p>
+        </div>
+
+        <!-- Beat 3: Quote 3 (0.47 - 0.58) -->
+        <div id="beat-3" class="beat beat-quote beat-quote-3">
+          <p id="quote-3">I don't chase deadlines. I outwalk them.</p>
+        </div>
+
+        <!-- Beat 4: Quote 4 (0.60 - 0.72) -->
+        <div id="beat-4" class="beat beat-quote beat-quote-4">
+          <p id="quote-4">Measured twice. Shipped once.</p>
+        </div>
+
+        <!-- Beat 5: Final Punchline (0.80 - 1.00) -->
+        <div id="beat-5" class="beat beat-final">
+          <div class="final-lead">// THE CREED</div>
+          <div id="final-line" class="final-title">By order of the craft.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ACT 2: THE DOSSIER -->
+  <main id="dossier-wrapper">
+    <div class="dossier-panel">
+      <!-- Dossier Header & Tablist -->
+      <header class="dossier-header">
+        <div class="dossier-eyebrow">The Dossier</div>
+        <div class="tab-list" role="tablist" aria-label="Dossier Sections">
+          <button id="tab-projects" class="tab-button" role="tab" aria-selected="true" aria-controls="panel-projects" tabindex="0">Projects</button>
+          <button id="tab-experience" class="tab-button" role="tab" aria-selected="false" aria-controls="panel-experience" tabindex="-1">Experience</button>
+          <button id="tab-skills" class="tab-button" role="tab" aria-selected="false" aria-controls="panel-skills" tabindex="-1">Skills</button>
+          <div id="tab-indicator" class="tab-indicator"></div>
+        </div>
+      </header>
+
+      <!-- Tab Panels Container with Animated Height -->
+      <div id="panels-container" class="panels-container">
+        <!-- Projects Panel -->
+        <section id="panel-projects" class="tab-panel active" role="tabpanel" aria-labelledby="tab-projects" tabindex="0">
+          <div id="projects-grid" class="projects-grid">
+            <!-- Dynamically injected from AURA_CONFIG.PROJECTS -->
+          </div>
+        </section>
+
+        <!-- Experience Panel -->
+        <section id="panel-experience" class="tab-panel" role="tabpanel" aria-labelledby="tab-experience" tabindex="0">
+          <div id="experience-list" class="experience-list">
+            <!-- Dynamically injected from AURA_CONFIG.EXPERIENCE -->
+          </div>
+        </section>
+
+        <!-- Skills Panel -->
+        <section id="panel-skills" class="tab-panel" role="tabpanel" aria-labelledby="tab-skills" tabindex="0">
+          <div id="skills-grid" class="skills-grid">
+            <!-- Dynamically injected from AURA_CONFIG.SKILLS -->
+          </div>
+        </section>
+      </div>
+
+      <!-- Dossier Footer -->
+      <footer class="dossier-footer">
+        <a id="contact-button" href="mailto:contact@example.com" class="contact-action">
+          Get in Touch
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+            <polyline points="12 5 19 12 12 19"></polyline>
+          </svg>
+        </a>
+
+        <ul id="socials-list" class="socials-list" aria-label="Social Profiles">
+          <!-- Dynamically injected from AURA_CONFIG.SOCIALS -->
+        </ul>
+
+        <p id="footer-note" class="footer-note">Cinematic sequence: AI-generated.</p>
+      </footer>
+    </div>
+  </main>
+
+  <!-- Optional frames manifest written by tools/make_frames script -->
+  <script src="frames/manifest.js?v=2" onerror="this.onerror=null;"></script>
+  <!-- Personal Configuration & Content -->
+  <script src="js/config.js?v=2"></script>
+  <!-- Main Application Logic -->
+  <script src="js/main.js?v=2"></script>
+</body>
+</html>

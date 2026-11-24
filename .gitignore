@@ -1,0 +1,10 @@
+# Ignore source media files containing personal photos and raw clips
+source/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/

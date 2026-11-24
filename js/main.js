@@ -229,7 +229,7 @@
     const isMobile = window.matchMedia("(max-aspect-ratio: 1/1)").matches;
     const template = (isMobile && cfg.FRAME_PATH_MOBILE) ? cfg.FRAME_PATH_MOBILE : (cfg.FRAME_PATH || "frames/frame_{n}.webp");
     const num = String(index + 1).padStart(3, "0");
-    return template.replace("{n}", num) + "?v=4";
+    return template.replace("{n}", num) + "?v=5";
   }
 
   function loadImageWithRetry(src, isRetry = false) {
@@ -272,64 +272,63 @@
   }
 
   async function preloadFrames() {
-    const minHoldPromise = new Promise(resolve => setTimeout(resolve, 900));
-    let progressPercent = 0;
+    const minHoldPromise = new Promise(resolve => setTimeout(resolve, 600));
 
-    // Load Frame 1 first
+    // Step 1: Load initial priority frames (immediate scroll horizon)
     try {
       const firstImg = await loadImageWithRetry(getFrameUrl(0));
       frames[0] = firstImg;
       framesLoadedCount = 1;
-      progressPercent = Math.round((1 / frameCount) * 100);
-      updatePreloader(progressPercent);
+      updatePreloader(30);
 
-      // Batch load the remaining frames in parallel groups of 10
-      const batchSize = 10;
-      for (let i = 1; i < frameCount; i += batchSize) {
-        const batchPromises = [];
-        for (let j = i; j < Math.min(i + batchSize, frameCount); j++) {
-          const idx = j;
-          batchPromises.push(
+      // Load initial buffer of first 8 frames in parallel
+      const initialBuffer = Math.min(8, frameCount);
+      const initialPromises = [];
+      for (let i = 1; i < initialBuffer; i++) {
+        const idx = i;
+        initialPromises.push(
+          loadImageWithRetry(getFrameUrl(idx))
+            .then(img => {
+              frames[idx] = img;
+              framesLoadedCount++;
+            })
+            .catch(() => {})
+        );
+      }
+      await Promise.all(initialPromises);
+      updatePreloader(85);
+    } catch (e) {
+      enableProceduralFallback();
+    }
+
+    // Step 2: Instant unlock — complete preloader and show site
+    updatePreloader(100);
+    await minHoldPromise;
+    drawCurrentFrame(true);
+
+    preloader.classList.add("loaded");
+    document.body.classList.remove("loading-locked");
+    startRafLoop();
+
+    // Step 3: Stream the remaining frames progressively in the background
+    const streamBatchSize = 12;
+    for (let i = 8; i < frameCount; i += streamBatchSize) {
+      const batch = [];
+      for (let j = i; j < Math.min(i + streamBatchSize, frameCount); j++) {
+        const idx = j;
+        if (!frames[idx]) {
+          batch.push(
             loadImageWithRetry(getFrameUrl(idx))
               .then(img => {
                 frames[idx] = img;
                 framesLoadedCount++;
-                progressPercent = Math.round((framesLoadedCount / frameCount) * 100);
-                updatePreloader(progressPercent);
               })
-              .catch(() => {
-                // If individual frame fails, keep null
-              })
+              .catch(() => {})
           );
         }
-        await Promise.all(batchPromises);
       }
-
-      // If > 60% of frames missing, fallback to procedural placeholder
-      if (framesLoadedCount < frameCount * 0.4) {
-        enableProceduralFallback();
-      }
-    } catch (e) {
-      // Frame 1 404'd or unreachable -> activate procedural fallback
-      enableProceduralFallback();
-      // Animate progress smoothly to 100%
-      updatePreloader(50);
-      await new Promise(r => setTimeout(r, 200));
-      updatePreloader(100);
+      await Promise.all(batch);
     }
-
-    // Await minimum hold of 900ms to guarantee calm pacing
-    await minHoldPromise;
-
-    // Draw frame 0 before revealing to prevent flash
-    drawCurrentFrame(true);
-
-    // Fade out preloader
-    preloader.classList.add("loaded");
-    document.body.classList.remove("loading-locked");
-
-    // Start rAF loop
-    startRafLoop();
   }
 
   function updatePreloader(pct) {
@@ -461,7 +460,16 @@
       return;
     }
 
-    const img = frames[targetIdx] || frames[0];
+    let img = frames[targetIdx];
+    if (!img || !img.naturalWidth) {
+      for (let k = targetIdx - 1; k >= 0; k--) {
+        if (frames[k] && frames[k].naturalWidth) {
+          img = frames[k];
+          break;
+        }
+      }
+      if (!img) img = frames[0];
+    }
     if (img && img.naturalWidth) {
       ctx.fillStyle = "#000000";
       ctx.fillRect(0, 0, cw, ch);

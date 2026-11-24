@@ -170,29 +170,92 @@
       }
     }
 
-    // Projects Grid
-    const projectsGrid = document.getElementById("projects-grid");
-    if (projectsGrid && Array.isArray(cfg.PROJECTS)) {
-      projectsGrid.innerHTML = cfg.PROJECTS.map((proj, idx) => {
+    // Projects Single-Card Slide Track
+    const projectsTrack = document.getElementById("projects-track");
+    const pillsList = document.getElementById("projects-pills-list");
+
+    if (projectsTrack && Array.isArray(cfg.PROJECTS)) {
+      projectsTrack.innerHTML = cfg.PROJECTS.map((proj, idx) => {
         const num = String(idx + 1).padStart(2, "0");
-        const techLine = Array.isArray(proj.tech) ? proj.tech.join(" / ") : "";
+        const category = proj.category || "ENGINEERING";
+        const themeColor = proj.themeColor || "#E8A33D";
+        const techTags = Array.isArray(proj.tech)
+          ? proj.tech.map(t => `<span class="tech-tag">${t}</span>`).join("")
+          : "";
+        const iconSrc = proj.icon || "assets/icons/clipper.svg";
+        const isLiveProfile = proj.hasProfile === true;
+        const profileUrl = proj.profileUrl || proj.githubUrl || "#";
+        const githubUrl = proj.githubUrl || profileUrl;
+
         return `
-          <a href="${proj.url || '#'}" target="_blank" rel="noopener noreferrer" class="project-card">
-            <div>
-              <div class="project-card-header">
-                <span class="project-index">${num}</span>
-                <svg class="project-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <line x1="7" y1="17" x2="17" y2="7"></line>
-                  <polyline points="7 7 17 7 17 17"></polyline>
-                </svg>
+          <div class="card-slide" data-index="${idx}">
+            <article class="project-card" style="--card-theme: ${themeColor};">
+              <div class="card-header-row">
+                <div class="card-identity">
+                  <div class="card-app-icon-wrap" style="--app-glow: ${themeColor};">
+                    <img src="${iconSrc}" class="card-app-icon" alt="${proj.title} icon" loading="lazy" />
+                  </div>
+                  <div class="card-heading-group">
+                    <div class="card-kicker">${category} // ${num}</div>
+                    <h3 class="card-title">${proj.title}</h3>
+                  </div>
+                </div>
               </div>
-              <h3 class="project-title">${proj.title}</h3>
-              <p class="project-desc">${proj.description}</p>
-            </div>
-            <div class="project-tech">${techLine}</div>
-          </a>
+
+              <div class="card-body-row">
+                <p class="card-desc">${proj.description}</p>
+                <div class="card-tech-row">
+                  ${techTags}
+                </div>
+              </div>
+
+              <div class="card-actions-row">
+                ${isLiveProfile ? `
+                  <a href="${profileUrl}" target="_blank" rel="noopener noreferrer" class="btn-action-primary">
+                    <span>VISIT PROFILE</span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <line x1="7" y1="17" x2="17" y2="7"></line>
+                      <polyline points="7 7 17 7 17 17"></polyline>
+                    </svg>
+                  </a>
+                  <a href="${githubUrl}" target="_blank" rel="noopener noreferrer" class="btn-action-secondary">
+                    <span>VIEW SOURCE</span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <line x1="7" y1="17" x2="17" y2="7"></line>
+                      <polyline points="7 7 17 7 17 17"></polyline>
+                    </svg>
+                  </a>
+                ` : `
+                  <a href="${githubUrl}" target="_blank" rel="noopener noreferrer" class="btn-action-primary">
+                    <span>VIEW REPOSITORY</span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <line x1="7" y1="17" x2="17" y2="7"></line>
+                      <polyline points="7 7 17 7 17 17"></polyline>
+                    </svg>
+                  </a>
+                `}
+              </div>
+            </article>
+          </div>
         `;
       }).join("");
+
+      // Populate Quick Jump Navigation Pills
+      if (pillsList) {
+        const shortNames = ["CLIPPER", "HYPERDRAIN", "PULSAR AUDIO", "PULSERELEASE", "ESTATERADAR"];
+        pillsList.innerHTML = cfg.PROJECTS.map((proj, idx) => {
+          const num = String(idx + 1).padStart(2, "0");
+          const name = shortNames[idx] || proj.title;
+          return `
+            <button class="project-pill ${idx === 0 ? 'active' : ''}" data-index="${idx}" aria-label="Go to project ${num}">
+              <span class="pill-num">${num}</span> ${name}
+            </button>
+          `;
+        }).join("");
+      }
+
+      const totalEl = document.getElementById("counter-total");
+      if (totalEl) totalEl.textContent = String(cfg.PROJECTS.length).padStart(2, "0");
     }
 
     // Experience Editorial Rows
@@ -559,6 +622,10 @@
     return frameMap[0][1];
   }
 
+  let updateHorizontalProjects = null;
+  let targetTrackX = 0;
+  let currentTrackX = 0;
+
   function startRafLoop() {
     if (isRafRunning) return;
     isRafRunning = true;
@@ -580,9 +647,15 @@
     // Redraw frame
     drawCurrentFrame(isProceduralFallback);
 
+    // Update horizontal projects track if initialized
+    let trackSettled = true;
+    if (typeof updateHorizontalProjects === "function") {
+      trackSettled = updateHorizontalProjects();
+    }
+
     // Check if settled
     const frameDiff = Math.abs(targetFrame - currentFrameFloat);
-    if (!isProceduralFallback && frameDiff < 0.001) {
+    if (!isProceduralFallback && frameDiff < 0.001 && trackSettled) {
       currentFrameFloat = targetFrame;
       isRafRunning = false;
       return;
@@ -626,14 +699,20 @@
     // Update narrative beats
     updateNarrativeBeats(targetProgress);
 
-    // Dim canvas as visitor scrolls into the Dossier (Act 2)
-    if (scrollY > maxScroll) {
-      const dossierOverScroll = scrollY - maxScroll;
-      const dimFactor = Math.min(dossierOverScroll / (window.innerHeight * 0.6), 1);
-      const targetOpacity = (1.0 - 0.8 * dimFactor).toFixed(3);
+    // Smooth transition into Dossier stage (Act 2)
+    const dossierStage = document.querySelector(".dossier-sticky-stage");
+    if (scrollY >= maxScroll - window.innerHeight * 0.2) {
+      if (dossierStage) dossierStage.classList.add("dossier-visible");
+      const dimFactor = Math.min((scrollY - maxScroll) / (window.innerHeight * 0.5), 1);
+      const targetOpacity = Math.max((1.0 - 0.85 * dimFactor), 0.12).toFixed(3);
       canvas.style.opacity = targetOpacity;
     } else {
+      if (dossierStage) dossierStage.classList.remove("dossier-visible");
       canvas.style.opacity = "1";
+    }
+
+    if (typeof updateHorizontalProjects === "function") {
+      updateHorizontalProjects();
     }
 
     // Wake up rAF loop
@@ -641,7 +720,135 @@
   }
 
   /* --------------------------------------------------------------------------
-     9. ACCESSIBLE DOSSIER TABS & ANIMATED HEIGHT
+     8b. SINGLE-CARD SIDEWAYS SLIDE TRACK & CONTROLS
+     -------------------------------------------------------------------------- */
+  let currentSlideFloat = 0;
+  let targetSlideFloat = 0;
+
+  function initHorizontalProjects() {
+    const viewport = document.getElementById("projects-viewport");
+    const track = document.getElementById("projects-track");
+    const dossierWrapper = document.getElementById("dossier-wrapper");
+    const counterCurrent = document.getElementById("counter-current");
+    const prevBtn = document.getElementById("projects-prev-btn");
+    const nextBtn = document.getElementById("projects-next-btn");
+    const pills = Array.from(document.querySelectorAll(".project-pill"));
+
+    if (!viewport || !track || !dossierWrapper || !heroEl) return;
+
+    function calculateProgress() {
+      const heroHeight = heroEl.offsetHeight;
+      const heroMaxScroll = heroHeight - window.innerHeight;
+      const scrollY = window.scrollY;
+
+      if (scrollY <= heroMaxScroll) return 0;
+
+      const dossierTrackHeight = dossierWrapper.offsetHeight - window.innerHeight;
+      if (dossierTrackHeight <= 0) return 0;
+
+      const over = scrollY - heroMaxScroll;
+      return Math.min(Math.max(over / dossierTrackHeight, 0), 1);
+    }
+
+    updateHorizontalProjects = function() {
+      const slides = Array.from(track.querySelectorAll(".card-slide"));
+      if (!slides.length) return true;
+
+      const progress = calculateProgress();
+      targetSlideFloat = progress * (slides.length - 1);
+
+      // Smooth lerp
+      const diff = targetSlideFloat - currentSlideFloat;
+      currentSlideFloat += diff * 0.16;
+
+      if (Math.abs(diff) < 0.005) {
+        currentSlideFloat = targetSlideFloat;
+      }
+
+      // Slide sideways (100vw per card slide for pure single-card focus)
+      track.style.transform = `translate3d(-${(currentSlideFloat * 100).toFixed(2)}vw, 0, 0)`;
+
+      // Active slide index & UI updates
+      const activeIdx = Math.min(Math.max(Math.round(currentSlideFloat), 0), slides.length - 1);
+
+      if (counterCurrent) {
+        counterCurrent.textContent = String(activeIdx + 1).padStart(2, "0");
+      }
+
+      pills.forEach((p, idx) => {
+        p.classList.toggle("active", idx === activeIdx);
+      });
+
+      return Math.abs(diff) < 0.005;
+    };
+
+    function navigateToCard(targetIdx) {
+      const slides = Array.from(track.querySelectorAll(".card-slide"));
+      if (!slides.length) return;
+
+      const clamped = Math.min(Math.max(targetIdx, 0), slides.length - 1);
+      const heroHeight = heroEl.offsetHeight;
+      const heroMaxScroll = heroHeight - window.innerHeight;
+      const dossierTrackHeight = dossierWrapper.offsetHeight - window.innerHeight;
+
+      const targetScrollY = heroMaxScroll + (clamped / (slides.length - 1)) * dossierTrackHeight + 2;
+      window.scrollTo({ top: targetScrollY, behavior: "smooth" });
+    }
+
+    if (prevBtn) {
+      prevBtn.addEventListener("click", () => {
+        const slides = Array.from(track.querySelectorAll(".card-slide"));
+        const currentIdx = Math.round(currentSlideFloat);
+        navigateToCard(currentIdx - 1);
+      });
+    }
+
+    if (nextBtn) {
+      nextBtn.addEventListener("click", () => {
+        const slides = Array.from(track.querySelectorAll(".card-slide"));
+        const currentIdx = Math.round(currentSlideFloat);
+        navigateToCard(currentIdx + 1);
+      });
+    }
+
+    // Quick Jump Navigation via Project Pills
+    pills.forEach(pill => {
+      pill.addEventListener("click", () => {
+        const idx = parseInt(pill.getAttribute("data-index") || "0", 10);
+        navigateToCard(idx);
+      });
+    });
+
+    // Mouse wheel inside viewport drives horizontal scrolling
+    viewport.addEventListener("wheel", (e) => {
+      const delta = Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+      if (delta !== 0) {
+        window.scrollBy({ top: delta, behavior: "auto" });
+      }
+    }, { passive: true });
+
+    // Subtle magnetic centering when user stops scrolling in the dossier section
+    let settleTimeout = null;
+    window.addEventListener("scroll", () => {
+      clearTimeout(settleTimeout);
+      settleTimeout = setTimeout(() => {
+        const heroHeight = heroEl.offsetHeight;
+        const heroMaxScroll = heroHeight - window.innerHeight;
+        const dossierTrackHeight = dossierWrapper.offsetHeight - window.innerHeight;
+        const scrollY = window.scrollY;
+
+        if (scrollY > heroMaxScroll + 20 && scrollY < heroMaxScroll + dossierTrackHeight - 20) {
+          const nearestIdx = Math.round(currentSlideFloat);
+          if (Math.abs(currentSlideFloat - nearestIdx) > 0.04) {
+            navigateToCard(nearestIdx);
+          }
+        }
+      }, 240);
+    }, { passive: true });
+  }
+
+  /* --------------------------------------------------------------------------
+     9. ACCESSIBLE DOSSIER TABS
      -------------------------------------------------------------------------- */
   function initTabs() {
     const tabButtons = Array.from(document.querySelectorAll(".tab-button"));
@@ -673,9 +880,9 @@
         tabIndicator.style.width = `${targetBtn.offsetWidth}px`;
       }
 
-      // Smooth container height
-      if (panelsContainer) {
-        panelsContainer.style.height = `${targetPanel.scrollHeight}px`;
+      // If switching back to projects, update horizontal position
+      if (targetId === "panel-projects" && typeof updateHorizontalProjects === "function") {
+        updateHorizontalProjects();
       }
 
       // Deep link without jumping scroll
@@ -792,7 +999,7 @@
       }, 25);
     }
 
-    const scrambleSelector = ".hero-role, .role-primary, .role-secondary, .badge-text, .quote-kicker, .scroll-cue-text, .final-lead, .dossier-eyebrow, .tab-button, .project-index, .project-tech, .experience-period, .experience-org, .skill-group-title, .footer-note";
+    const scrambleSelector = ".hero-role, .role-primary, .role-secondary, .badge-text, .quote-kicker, .scroll-cue-text, .final-lead, .dossier-eyebrow, .tab-button, .project-index, .project-category-badge, .experience-period, .experience-org, .skill-group-title, .footer-note, .btn-project-primary span";
 
     document.addEventListener("mouseenter", (e) => {
       const target = e.target;
@@ -910,13 +1117,24 @@
     hydrateContent();
     resizeCanvas();
     initTabs();
+    initHorizontalProjects();
     initTextScramble();
     initAuraCursor();
     initHeroLantern();
 
     window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", resizeCanvas, { passive: true });
-    window.addEventListener("orientationchange", resizeCanvas, { passive: true });
+    window.addEventListener("resize", () => {
+      resizeCanvas();
+      if (typeof updateHorizontalProjects === "function") {
+        updateHorizontalProjects();
+      }
+    }, { passive: true });
+    window.addEventListener("orientationchange", () => {
+      resizeCanvas();
+      if (typeof updateHorizontalProjects === "function") {
+        updateHorizontalProjects();
+      }
+    }, { passive: true });
 
     onScroll();
     preloadFrames();

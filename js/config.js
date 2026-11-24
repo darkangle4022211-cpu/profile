@@ -6,7 +6,7 @@ window.AURA_CONFIG = {
   NAME: "MUHAMMAD HAMZA ZAFAR",
   BRAND: "AURA",
   ROLE_LINE: "VIBE CODER & AI ENGINEER // FOUNDER AXOVION.IO",
-  FOOTER_NOTE: "Cinematic sequence: AI-generated. Crafted by Muhammad Hamza Zafar.",
+  FOOTER_NOTE: "Crafted by Muhammad Hamza Zafar // Founder Axovion.io",
 
   // Video Frame Configuration
   FRAME_COUNT: 120,
@@ -48,33 +48,58 @@ window.AURA_CONFIG = {
   PROJECTS: [
     {
       title: "AI REEL CLIPPER STUDIO",
-      description: "Autonomous short-form viral reel generator & multi-platform publisher for Instagram, YouTube Shorts, and TikTok.",
-      tech: ["AI AUTOMATION", "JAVASCRIPT", "FFMPEG", "PIPELINES"],
-      url: "https://github.com/darkangle4022211-cpu/clipper"
-    },
-    {
-      title: "ESTATERADAR ENTERPRISE",
-      description: "Enterprise mobile workforce and real-time property survey application with spatial intelligence.",
-      tech: ["JAVASCRIPT", "MOBILE APP", "SURVEY ENGINE", "GEOLOCATION"],
-      url: "https://github.com/darkangle4022211-cpu/estateradar-app"
+      category: "AI WORKSTATION",
+      description: "Autonomous short-form viral reel generator & multi-platform publisher for Instagram Reels, YouTube Shorts, and TikTok.",
+      tech: ["AI AUTOMATION", "JAVASCRIPT", "FFMPEG", "GROQ LLM"],
+      icon: "assets/icons/clipper.svg",
+      hasProfile: false,
+      profileUrl: "https://github.com/darkangle4022211-cpu/clipper",
+      githubUrl: "https://github.com/darkangle4022211-cpu/clipper",
+      themeColor: "#863BFF"
     },
     {
       title: "HYPERDRAIN PLATFORM",
-      description: "High-throughput desktop download accelerator and responsive software distribution web platform.",
-      tech: ["JAVASCRIPT", "DESKTOP ENGINE", "STREAMING", "CSS"],
-      url: "https://github.com/darkangle4022211-cpu/hyperdrain"
+      category: "DISTRIBUTED ENGINE",
+      description: "High-throughput desktop download accelerator, multi-stream chunking engine, and modern distribution web platform.",
+      tech: ["GO ENGINE", "ELECTRON", "STREAMING", "OBSIDIAN UI"],
+      icon: "assets/icons/hyperdrain.png",
+      hasProfile: true,
+      profileUrl: "https://darkangle4022211-cpu.github.io/hyperdrain/",
+      githubUrl: "https://github.com/darkangle4022211-cpu/hyperdrain",
+      themeColor: "#00D2FF"
     },
     {
       title: "PULSAR AUDIO",
-      description: "High-fidelity offline music player and audio workstation interface built for audiophiles.",
-      tech: ["WEB AUDIO API", "JAVASCRIPT", "HIGH-FIDELITY DSP", "MODERN CSS"],
-      url: "https://github.com/darkangle4022211-cpu/pulsar-audio"
+      category: "AUDIOPHILE DSP",
+      description: "High-fidelity offline music player featuring a 10-band hardware equalizer, 60FPS canvas spectrum visualizer, and zero-telemetry architecture.",
+      tech: ["WEB AUDIO API", "10-BAND EQ", "DSP SPECTRUM", "OFFLINE"],
+      icon: "assets/icons/pulsar-audio.png",
+      hasProfile: true,
+      profileUrl: "https://darkangle4022211-cpu.github.io/pulsar-audio/",
+      githubUrl: "https://github.com/darkangle4022211-cpu/pulsar-audio",
+      themeColor: "#FFAE33"
     },
     {
       title: "PULSERELEASE CONSOLE",
-      description: "Developer release console and universal auto-update orchestration engine for modern desktop software.",
-      tech: ["RELEASE MANAGEMENT", "CI/CD", "DEV TOOLS", "VANILLA JS"],
-      url: "https://github.com/darkangle4022211-cpu/pulserelease"
+      category: "DEV INFRASTRUCTURE",
+      description: "Universal developer release console, auto-update orchestration engine, in-browser SHA-256 validator, and client companion SDK.",
+      tech: ["CI/CD ENGINE", "RELEASE HUB", "DEV TOOLS", "CRYPTO API"],
+      icon: "assets/icons/pulserelease.png",
+      hasProfile: true,
+      profileUrl: "https://darkangle4022211-cpu.github.io/pulserelease/",
+      githubUrl: "https://github.com/darkangle4022211-cpu/pulserelease",
+      themeColor: "#38BDF8"
+    },
+    {
+      title: "ESTATERADAR ENTERPRISE",
+      category: "MOBILE TELEMETRY",
+      description: "Enterprise mobile workforce and real-time property survey application with spatial intelligence, offline caching, and fleet telemetry.",
+      tech: ["CAPACITOR", "MOBILE APP", "SURVEY ENGINE", "GEOLOCATION"],
+      icon: "assets/icons/estateradar.png",
+      hasProfile: false,
+      profileUrl: "https://github.com/darkangle4022211-cpu/estateradar-app",
+      githubUrl: "https://github.com/darkangle4022211-cpu/estateradar-app",
+      themeColor: "#10B981"
     }
   ],
 

@@ -27,7 +27,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 
   <!-- Stylesheet -->
-  <link rel="stylesheet" href="css/style.css?v=8">
+  <link rel="stylesheet" href="css/style.css?v=11">
 </head>
 <body class="loading-locked">
 
@@ -117,25 +117,54 @@
   </section>
 
   <!-- ACT 2: THE DOSSIER -->
-  <main id="dossier-wrapper">
-    <div class="dossier-panel">
+  <main id="dossier-wrapper" class="dossier-wrapper">
+    <div class="dossier-sticky-stage">
       <!-- Dossier Header & Tablist -->
       <header class="dossier-header">
-        <div class="dossier-eyebrow">The Dossier</div>
+        <div class="dossier-brand-col">
+          <div class="dossier-eyebrow">// THE DOSSIER</div>
+          <div id="projects-counter" class="dossier-counter" aria-live="polite">
+            <span id="counter-current" class="counter-num">01</span>
+            <span class="counter-sep">/</span>
+            <span id="counter-total" class="counter-total">05</span>
+          </div>
+        </div>
+
         <div class="tab-list" role="tablist" aria-label="Dossier Sections">
-          <button id="tab-projects" class="tab-button" role="tab" aria-selected="true" aria-controls="panel-projects" tabindex="0">Projects</button>
+          <button id="tab-projects" class="tab-button active" role="tab" aria-selected="true" aria-controls="panel-projects" tabindex="0">Projects</button>
           <button id="tab-experience" class="tab-button" role="tab" aria-selected="false" aria-controls="panel-experience" tabindex="-1">Experience</button>
           <button id="tab-skills" class="tab-button" role="tab" aria-selected="false" aria-controls="panel-skills" tabindex="-1">Skills</button>
           <div id="tab-indicator" class="tab-indicator"></div>
         </div>
       </header>
 
-      <!-- Tab Panels Container with Animated Height -->
+      <!-- Tab Panels Container -->
       <div id="panels-container" class="panels-container">
-        <!-- Projects Panel -->
+        <!-- Projects Panel: Shows ONE Card at a time, moving sideways on scroll -->
         <section id="panel-projects" class="tab-panel active" role="tabpanel" aria-labelledby="tab-projects" tabindex="0">
-          <div id="projects-grid" class="projects-grid">
-            <!-- Dynamically injected from AURA_CONFIG.PROJECTS -->
+          <div id="projects-viewport" class="projects-single-viewport">
+            <div id="projects-track" class="projects-single-track">
+              <!-- Dynamically injected from AURA_CONFIG.PROJECTS (1 card per slide) -->
+            </div>
+          </div>
+
+          <!-- Project Navigation Bar & Indicator Pills -->
+          <div class="projects-controls-row">
+            <div id="projects-pills-list" class="projects-pills-list">
+              <!-- Generated 01, 02, 03, 04, 05 quick-jump pills -->
+            </div>
+            <div class="projects-nav-arrows">
+              <button id="projects-prev-btn" class="nav-arrow-btn" aria-label="Previous project" title="Previous Project">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="15 18 9 12 15 6"></polyline>
+                </svg>
+              </button>
+              <button id="projects-next-btn" class="nav-arrow-btn" aria-label="Next project" title="Next Project">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="9 18 15 12 9 6"></polyline>
+                </svg>
+              </button>
+            </div>
           </div>
         </section>
 
@@ -156,7 +185,7 @@
 
       <!-- Dossier Footer -->
       <footer class="dossier-footer">
-        <a id="contact-button" href="mailto:contact@example.com" class="contact-action">
+        <a id="contact-button" href="mailto:hamza.zafar4022211@gmail.com" class="contact-action">
           Get in Touch
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <line x1="5" y1="12" x2="19" y2="12"></line>
@@ -168,7 +197,7 @@
           <!-- Dynamically injected from AURA_CONFIG.SOCIALS -->
         </ul>
 
-        <p id="footer-note" class="footer-note">Cinematic sequence: AI-generated.</p>
+        <p id="footer-note" class="footer-note">Crafted by Muhammad Hamza Zafar // Founder Axovion.io</p>
       </footer>
     </div>
   </main>
@@ -180,10 +209,10 @@
   </div>
 
   <!-- Optional frames manifest written by tools/make_frames script -->
-  <script src="frames/manifest.js?v=8" onerror="this.onerror=null;"></script>
+  <script src="frames/manifest.js?v=11" onerror="this.onerror=null;"></script>
   <!-- Personal Configuration & Content -->
-  <script src="js/config.js?v=8"></script>
+  <script src="js/config.js?v=11"></script>
   <!-- Main Application Logic -->
-  <script src="js/main.js?v=8"></script>
+  <script src="js/main.js?v=11"></script>
 </body>
 </html>

@@ -103,13 +103,40 @@
     }
 
     const heroRole = document.getElementById("hero-role");
-    if (heroRole && cfg.ROLE_LINE) heroRole.textContent = cfg.ROLE_LINE;
+    if (heroRole && cfg.ROLE_LINE) {
+      if (cfg.ROLE_LINE.includes("//")) {
+        const parts = cfg.ROLE_LINE.split("//");
+        heroRole.innerHTML = `
+          <div class="role-primary">${parts[0].trim()}</div>
+          <div class="role-secondary"><span class="role-sep">//</span> ${parts[1].trim()}</div>
+        `;
+      } else {
+        heroRole.textContent = cfg.ROLE_LINE;
+      }
+    }
 
     // Quotes
     if (Array.isArray(cfg.HERO_QUOTES)) {
       for (let i = 0; i < 4; i++) {
         const qEl = document.getElementById(`quote-${i + 1}`);
-        if (qEl && cfg.HERO_QUOTES[i]) qEl.textContent = cfg.HERO_QUOTES[i];
+        const kickerEl = document.getElementById(`quote-kicker-${i + 1}`);
+        const item = cfg.HERO_QUOTES[i];
+        if (!item || !qEl) continue;
+
+        if (typeof item === "object") {
+          qEl.innerHTML = `${item.quote} <span class="quote-gold">${item.accent}</span>`;
+          if (kickerEl && item.kicker) kickerEl.innerHTML = item.kicker;
+        } else if (typeof item === "string") {
+          const words = item.split(" ");
+          if (words.length > 2) {
+            const splitAt = Math.max(1, words.length - 2);
+            const main = words.slice(0, splitAt).join(" ");
+            const acc = words.slice(splitAt).join(" ");
+            qEl.innerHTML = `${main} <span class="quote-gold">${acc}</span>`;
+          } else {
+            qEl.textContent = item;
+          }
+        }
       }
     }
 
@@ -118,9 +145,14 @@
     if (finalEl && cfg.FINAL_LINE) {
       finalEl.setAttribute("aria-label", cfg.FINAL_LINE);
       const words = cfg.FINAL_LINE.split(" ");
-      finalEl.innerHTML = words.map(word => 
-        `<span class="creed-word" aria-hidden="true">${word}</span>`
-      ).join(" ");
+      if (words.length > 2) {
+        const splitAt = Math.max(1, words.length - 2);
+        const main = words.slice(0, splitAt).join(" ");
+        const acc = words.slice(splitAt).join(" ");
+        finalEl.innerHTML = `${main} <span class="creed-gold">${acc}</span>`;
+      } else {
+        finalEl.textContent = cfg.FINAL_LINE;
+      }
     }
 
     // Footer Note
@@ -244,7 +276,7 @@
     const isMobile = window.matchMedia("(max-aspect-ratio: 1/1)").matches;
     const template = (isMobile && cfg.FRAME_PATH_MOBILE) ? cfg.FRAME_PATH_MOBILE : (cfg.FRAME_PATH || "frames/frame_{n}.webp");
     const num = String(index + 1).padStart(3, "0");
-    return template.replace("{n}", num) + "?v=6";
+    return template.replace("{n}", num) + "?v=7";
   }
 
   function loadImageWithRetry(src, isRetry = false) {
@@ -760,7 +792,7 @@
       }, 25);
     }
 
-    const scrambleSelector = ".hero-role, .scroll-cue-text, .final-lead, .dossier-eyebrow, .tab-button, .project-index, .project-tech, .experience-period, .experience-org, .skill-group-title, .footer-note";
+    const scrambleSelector = ".hero-role, .role-primary, .role-secondary, .badge-text, .quote-kicker, .scroll-cue-text, .final-lead, .dossier-eyebrow, .tab-button, .project-index, .project-tech, .experience-period, .experience-org, .skill-group-title, .footer-note";
 
     document.addEventListener("mouseenter", (e) => {
       const target = e.target;

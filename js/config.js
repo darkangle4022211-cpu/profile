@@ -21,10 +21,26 @@ window.AURA_CONFIG = {
 
   // Act 1: Cinematic Hero Quotes
   HERO_QUOTES: [
-    "Quiet hands build loud things.",
-    "Details are where empires are decided.",
-    "I don't chase deadlines. I outwalk them.",
-    "Measured twice. Shipped once."
+    {
+      kicker: "// ACT I — 01 • THE DISCIPLINE",
+      quote: "Quiet hands build",
+      accent: "loud things."
+    },
+    {
+      kicker: "// ACT I — 02 • THE ARCHITECTURE",
+      quote: "Details are where",
+      accent: "empires are decided."
+    },
+    {
+      kicker: "// ACT I — 03 • THE VELOCITY",
+      quote: "I don't chase deadlines.",
+      accent: "I outwalk them."
+    },
+    {
+      kicker: "// ACT I — 04 • THE STANDARD",
+      quote: "Measured twice.",
+      accent: "Shipped once."
+    }
   ],
   FINAL_LINE: "By order of the craft.",
 

@@ -72,24 +72,7 @@
   let ringPillEls = [];
   let ringCardEls = [];
   let cardRenderState = [];
-
-  // Act 3: Closing Credits State
-  let creditsSectionEl = null;
-  let creditsStageEl = null;
-  let creditsPlaneEl = null;
-  let finLayerEl = null;
-  let finCardEl = null;
-  let creditsTop = 0;
-  let creditsScrollPx = 0;
-  let creditsStartY = 0;
-  let creditsEndY = 0;
-  let creditsTiltDeg = 50;
-  let targetC = 0;
-  let smoothedC = 0;
-  let isCreditsInView = false;
-  let isCreditsRafRunning = false;
-  let lastCreditsRafTime = performance.now();
-  let prefersReducedMotion = false;
+  let resizeSmokeFn = null;
 
   // Prevent scroll restoration jump
   if ("scrollRestoration" in history) {
@@ -176,33 +159,7 @@
 
     layoutRingCards();
     resizeCanvas();
-    syncCreditsLayout();
-  }
-
-  function syncCreditsLayout() {
-    if (!creditsSectionEl || !creditsStageEl || !creditsPlaneEl) return;
-    if (prefersReducedMotion) {
-      creditsSectionEl.style.height = "";
-      return;
-    }
-
-    const vh = cachedVh || window.innerHeight;
-    const creditsVh = cfg.CREDITS_SCROLL_VH || 450;
-    creditsScrollPx = creditsVh * 0.01 * vh;
-    creditsSectionEl.style.height = `${Math.round(vh + creditsScrollPx)}px`;
-    creditsTop = creditsSectionEl.getBoundingClientRect().top + window.scrollY;
-
-    const stageH = creditsStageEl.clientHeight || vh;
-    const planeH = creditsPlaneEl.offsetHeight;
-    const portrait = isPortraitMedia();
-    creditsTiltDeg = portrait ? 38 : (cfg.CREDITS_TILT_DEG || 50);
-    const persp = portrait ? 700 : 900;
-    const tiltRad = (creditsTiltDeg * Math.PI) / 180;
-    const denom = persp * Math.cos(tiltRad) - 0.30 * stageH * Math.sin(tiltRad);
-    const distToTop = (denom > 80) ? (persp * stageH) / denom : stageH * 2.4;
-
-    creditsStartY = planeH + 24;
-    creditsEndY = -distToTop;
+    if (typeof resizeSmokeFn === "function") resizeSmokeFn();
   }
 
   /* --------------------------------------------------------------------------
@@ -467,74 +424,10 @@
     cardRenderState = ringCardEls.map(() => ({ opacity: -1, active: false, pointer: "", visible: true }));
     lastActiveCardIdx = -1;
 
-    // Closing Credits Content (built dynamically from config.js)
-    creditsSectionEl = document.getElementById("credits");
-    creditsStageEl = document.getElementById("credits-stage");
-    creditsPlaneEl = document.getElementById("credits-plane");
-    finLayerEl = document.getElementById("fin-layer");
-    finCardEl = document.getElementById("fin-card");
-
-    const finClosingEl = document.getElementById("fin-closing-line");
-    if (finClosingEl && cfg.CREDITS_CLOSING_LINE) {
-      finClosingEl.textContent = cfg.CREDITS_CLOSING_LINE;
-    }
-
-    if (creditsPlaneEl) {
-      const uniqueTech = [];
-      if (Array.isArray(cfg.PROJECTS)) {
-        for (let i = 0; i < cfg.PROJECTS.length && uniqueTech.length < 12; i++) {
-          const techArr = cfg.PROJECTS[i].tech || [];
-          for (let j = 0; j < techArr.length && uniqueTech.length < 12; j++) {
-            if (!uniqueTech.includes(techArr[j])) uniqueTech.push(techArr[j]);
-          }
-        }
-      }
-
-      const starringHtml = Array.isArray(cfg.PROJECTS) ? cfg.PROJECTS.map(proj => `
-        <div class="credits-item">
-          <div class="credits-project-title">${proj.title}</div>
-          <div class="credits-role">${proj.category || "ENGINEERING"}</div>
-        </div>
-      `).join("") : "";
-
-      const builtWithHtml = uniqueTech.map(tag => `<div class="credits-name">${tag}</div>`).join("");
-
-      const toolsList = Array.isArray(cfg.CREDITS_TOOLS) ? cfg.CREDITS_TOOLS : [];
-      const directedWithHtml = toolsList.map(tool => `<div class="credits-name">${tool}</div>`).join("");
-
-      creditsPlaneEl.innerHTML = `
-        <div class="credits-block">
-          <div class="credits-title-mark">${cfg.BRAND || "AURA"}</div>
-          <div class="credits-role">A FILM BY ${cfg.NAME || ""}</div>
-        </div>
-
-        <div class="credits-block">
-          <div class="credits-label">[ STARRING ]</div>
-          ${starringHtml}
-        </div>
-
-        <div class="credits-block">
-          <div class="credits-label">[ BUILT WITH ]</div>
-          ${builtWithHtml}
-        </div>
-
-        <div class="credits-block">
-          <div class="credits-label">[ DIRECTED WITH ]</div>
-          ${directedWithHtml}
-        </div>
-
-        <div class="credits-block">
-          <div class="credits-label">[ VISUALS ]</div>
-          <div class="credits-item">
-            <div class="credits-role">Cinematography: AI-generated</div>
-            <div class="credits-name">Created with Google Flow (Veo) and Nano Banana</div>
-          </div>
-        </div>
-
-        <div class="credits-block">
-          <div class="credits-final-line">${cfg.FINAL_LINE || ""}</div>
-        </div>
-      `;
+    // Closing Line for Finale Footer
+    const closingLineEl = document.getElementById("closing-line");
+    if (closingLineEl && cfg.CLOSING_LINE) {
+      closingLineEl.textContent = cfg.CLOSING_LINE;
     }
   }
 
@@ -1366,116 +1259,415 @@
   }
 
   /* --------------------------------------------------------------------------
-     12b. CLOSING CREDITS ROLL & FINALE (IntersectionObserver-gated rAF)
+     12b. SMOKE FINALE (WebGL Domain-Warped Noise + Embers + Fallback)
      -------------------------------------------------------------------------- */
-  function renderCredits(c) {
-    if (!creditsPlaneEl || !finLayerEl || !finCardEl) return;
+  function initSmokeFinale() {
+    const finaleEl = document.getElementById("finale");
+    const smokeCanvas = document.getElementById("smoke-canvas");
+    const fallbackEl = document.getElementById("smoke-fallback");
+    const embersEl = document.getElementById("finale-embers");
+    const closingLineEl = document.getElementById("closing-line");
+    if (!finaleEl) return;
 
-    const rollT = Math.min(Math.max(c / 0.8, 0), 1);
-    const y = creditsStartY + (creditsEndY - creditsStartY) * rollT;
-    creditsPlaneEl.style.transform = `rotateX(${creditsTiltDeg}deg) translateY(${y.toFixed(1)}px)`;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const smokeCfg = cfg.SMOKE || { intensity: 0.6, speed: 1.0, height: 0.9, amber: 0.8 };
 
-    const planeAlpha = 1 - Math.min(Math.max((c - 0.78) / 0.12, 0), 1);
-    creditsPlaneEl.style.opacity = planeAlpha.toFixed(3);
-
-    const finT = Math.min(Math.max((c - 0.78) / 0.17, 0), 1);
-    const finEase = 1 - Math.pow(1 - finT, 3);
-    const finZ = -700 * (1 - finEase);
-    const finScale = 0.92 + 0.08 * finEase;
-
-    finLayerEl.style.opacity = finEase.toFixed(3);
-    finCardEl.style.transform = `translate3d(0, 0, ${finZ.toFixed(1)}px) scale(${finScale.toFixed(4)})`;
-    finLayerEl.style.pointerEvents = (finEase >= 0.995) ? "auto" : "none";
-  }
-
-  function startCreditsRafLoop() {
-    if (prefersReducedMotion || isCreditsRafRunning || !isCreditsInView) return;
-    isCreditsRafRunning = true;
-    lastCreditsRafTime = performance.now();
-    requestAnimationFrame(creditsRafTick);
-  }
-
-  function creditsRafTick(now) {
-    if (!isCreditsInView) {
-      isCreditsRafRunning = false;
-      return;
-    }
-
-    const dt = Math.min(Math.max(now - lastCreditsRafTime, 1), 50);
-    lastCreditsRafTime = now;
-
-    const decay = 1 - Math.pow(1 - 0.09, dt / 16.67);
-    smoothedC += (targetC - smoothedC) * decay;
-
-    if (Math.abs(targetC - smoothedC) < 0.0004) {
-      smoothedC = targetC;
-    }
-
-    renderCredits(smoothedC);
-
-    if (Math.abs(targetC - smoothedC) < 0.0004) {
-      isCreditsRafRunning = false;
-      return;
-    }
-
-    requestAnimationFrame(creditsRafTick);
-  }
-
-  function setSectionNavHidden(hidden) {
-    const navEls = document.querySelectorAll(".section-nav, #section-nav");
-    navEls.forEach(nav => {
-      nav.style.opacity = hidden ? "0" : "";
-      nav.style.pointerEvents = hidden ? "none" : "";
-    });
-  }
-
-  function initCredits() {
-    if (!creditsSectionEl) return;
-    prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-    if (prefersReducedMotion) {
-      syncCreditsLayout();
-      const blocks = Array.from(creditsSectionEl.querySelectorAll(".credits-block, .fin-card"));
-      if ("IntersectionObserver" in window) {
-        const rmObserver = new IntersectionObserver((entries) => {
-          entries.forEach(entry => {
-            if (entry.isIntersecting) {
-              entry.target.classList.add("is-visible");
-              rmObserver.unobserve(entry.target);
-            }
-          });
-        }, { threshold: 0.12 });
-        blocks.forEach(el => rmObserver.observe(el));
-      } else {
-        blocks.forEach(el => el.classList.add("is-visible"));
+    // Populate tiny rising amber embers (paused out of view, skipped for reduced motion)
+    if (embersEl && !reducedMotion) {
+      const emberCount = 10;
+      const frag = document.createDocumentFragment();
+      for (let i = 0; i < emberCount; i++) {
+        const dot = document.createElement("span");
+        dot.className = "ember-dot";
+        const leftPct = 10 + Math.random() * 80;
+        const drift = (Math.random() * 44 - 22).toFixed(1);
+        const dur = (7 + Math.random() * 6).toFixed(2);
+        const delay = (-Math.random() * 12).toFixed(2);
+        dot.style.left = `${leftPct.toFixed(1)}%`;
+        dot.style.setProperty("--ember-drift", `${drift}px`);
+        dot.style.setProperty("--ember-dur", `${dur}s`);
+        dot.style.setProperty("--ember-delay", `${delay}s`);
+        frag.appendChild(dot);
       }
-      return;
+      embersEl.appendChild(frag);
     }
 
-    syncCreditsLayout();
-    targetC = creditsScrollPx > 0 ? Math.min(Math.max((window.scrollY - creditsTop) / creditsScrollPx, 0), 1) : 0;
-    smoothedC = targetC;
-    renderCredits(smoothedC);
+    if (reducedMotion && closingLineEl) {
+      closingLineEl.classList.add("is-visible");
+    }
+
+    let gl = null;
+    let program = null;
+    let buffer = null;
+    let uniforms = null;
+    let useFallback = false;
+    let isFinaleInView = false;
+    let smokeRafId = 0;
+    let lastTickTime = performance.now();
+    let lastDrawTime = 0;
+    let elapsedTime = reducedMotion ? 2.4 : 0;
+
+    // Pointer state in UV (y=0 bottom, y=1 top)
+    let targetMouseX = 0.5;
+    let targetMouseY = 0.25;
+    let mouseX = 0.5;
+    let mouseY = 0.25;
+    let pushVal = 0;
+    let lastMoveAt = 0;
+    let pointerInside = false;
+
+    function activateCssFallback(reason) {
+      useFallback = true;
+      if (reason) console.error("[SmokeFinale]", reason);
+      if (smokeCanvas) smokeCanvas.style.display = "none";
+      if (fallbackEl) fallbackEl.classList.add("active");
+    }
+
+    function compileShader(context, type, source) {
+      const shader = context.createShader(type);
+      context.shaderSource(shader, source);
+      context.compileShader(shader);
+      if (!context.getShaderParameter(shader, context.COMPILE_STATUS)) {
+        const err = context.getShaderInfoLog(shader) || "Shader compile error";
+        console.error("[SmokeFinale] Shader compile error:", err);
+        context.deleteShader(shader);
+        return null;
+      }
+      return shader;
+    }
+
+    function initWebGLContext() {
+      if (!smokeCanvas) return false;
+      const ctxOpts = {
+        alpha: true,
+        premultipliedAlpha: true,
+        antialias: false,
+        depth: false,
+        stencil: false,
+        preserveDrawingBuffer: false
+      };
+      gl = smokeCanvas.getContext("webgl", ctxOpts) || smokeCanvas.getContext("experimental-webgl", ctxOpts);
+      if (!gl) {
+        activateCssFallback("WebGL unavailable; using CSS gradient smoke fallback.");
+        return false;
+      }
+
+      const octaves = isMobileLayout() ? 4 : 5;
+      const vertSrc = `
+        attribute vec2 a_pos;
+        varying vec2 v_uv;
+        void main() {
+          v_uv = a_pos * 0.5 + 0.5;
+          gl_Position = vec4(a_pos, 0.0, 1.0);
+        }
+      `;
+
+      const fragSrc = `
+        #ifdef GL_FRAGMENT_PRECISION_HIGH
+          precision highp float;
+        #else
+          precision mediump float;
+        #endif
+
+        #define OCTAVES ${octaves}
+
+        varying vec2 v_uv;
+        uniform vec2 u_res;
+        uniform float u_time;
+        uniform vec2 u_mouse;
+        uniform float u_push;
+        uniform float u_reveal;
+        uniform float u_intensity;
+        uniform float u_height;
+        uniform float u_amber;
+
+        float hash21(vec2 p) {
+          p = fract(p * vec2(123.34, 456.21));
+          p += dot(p, p + 45.32);
+          return fract(p.x * p.y);
+        }
+
+        float vnoise(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          vec2 u = f * f * (3.0 - 2.0 * f);
+          float a = hash21(i);
+          float b = hash21(i + vec2(1.0, 0.0));
+          float c = hash21(i + vec2(0.0, 1.0));
+          float d = hash21(i + vec2(1.0, 1.0));
+          return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+        }
+
+        float fbm(vec2 p) {
+          float sum = 0.0;
+          float amp = 0.5;
+          mat2 rot = mat2(0.80, -0.60, 0.60, 0.80);
+          for (int i = 0; i < OCTAVES; i++) {
+            sum += amp * vnoise(p);
+            p = rot * p * 2.0;
+            amp *= 0.5;
+          }
+          return sum;
+        }
+
+        void main() {
+          vec2 uv = v_uv;
+          float aspect = u_res.x / max(u_res.y, 1.0);
+          vec2 p = vec2((uv.x - 0.5) * aspect, uv.y);
+
+          // Soft cursor/touch swirl displacement
+          vec2 mPos = vec2((u_mouse.x - 0.5) * aspect, u_mouse.y);
+          vec2 diff = p - mPos;
+          float dist = length(diff);
+          float falloff = smoothstep(0.25, 0.0, dist);
+          vec2 dir = dist > 0.0001 ? diff / dist : vec2(0.0);
+          vec2 perp = vec2(-dir.y, dir.x);
+          p -= (dir * 0.22 + perp * 0.14) * falloff * u_push;
+
+          float t = u_time;
+          vec2 q = vec2(
+            fbm(p * 1.6 - vec2(0.0, t * 0.16)),
+            fbm(p * 1.6 - vec2(0.0, t * 0.16) + vec2(5.2, 1.3))
+          );
+
+          vec2 w = vec2(
+            fbm(p * 2.2 + 3.0 * q - vec2(0.0, t * 0.24) + vec2(1.7, 9.2)),
+            fbm(p * 2.2 + 3.0 * q - vec2(0.0, t * 0.24) + vec2(8.3, 2.8))
+          );
+
+          float density = fbm(p * 1.8 + 3.5 * w - vec2(0.0, t * 0.30));
+          density = smoothstep(0.35, 0.95, density);
+
+          // Vertical rise shape dissolving completely before top edge
+          float h = clamp(u_height * mix(0.55, 1.0, u_reveal), 0.10, 0.90);
+          float vFade = 1.0 - smoothstep(0.0, h, uv.y);
+          float shape = vFade * vFade;
+
+          float revealAlpha = mix(0.25, 1.0, u_reveal);
+          float a = clamp(density * shape * u_intensity * revealAlpha * 1.35, 0.0, 0.75);
+
+          vec3 amberCol = vec3(1.0, 0.627, 0.200);
+          vec3 grayCol = vec3(0.784, 0.761, 0.722);
+          float warmMix = clamp((1.0 - smoothstep(0.0, 0.52, uv.y)) * u_amber, 0.0, 1.0);
+          vec3 col = mix(grayCol, amberCol, warmMix);
+
+          // Soft pulsing amber ember glow along bottom centre
+          float glowDist = length(vec2((uv.x - 0.5) * aspect * 0.65, uv.y));
+          float pulse = 0.72 + 0.28 * sin(t * 1.1);
+          float baseGlow = smoothstep(0.55, 0.0, glowDist) * 0.22 * u_amber * pulse * revealAlpha;
+          col = mix(col, amberCol, clamp(baseGlow * 1.8, 0.0, 0.85));
+          a = clamp(a + baseGlow * (1.0 - smoothstep(0.0, 0.45, uv.y)), 0.0, 0.75);
+
+          gl_FragColor = vec4(col * a, a);
+        }
+      `;
+
+      const vs = compileShader(gl, gl.VERTEX_SHADER, vertSrc);
+      const fs = compileShader(gl, gl.FRAGMENT_SHADER, fragSrc);
+      if (!vs || !fs) {
+        activateCssFallback();
+        return false;
+      }
+
+      program = gl.createProgram();
+      gl.attachShader(program, vs);
+      gl.attachShader(program, fs);
+      gl.linkProgram(program);
+
+      gl.deleteShader(vs);
+      gl.deleteShader(fs);
+
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        const err = gl.getProgramInfoLog(program) || "Program link error";
+        console.error("[SmokeFinale] Program link error:", err);
+        activateCssFallback();
+        return false;
+      }
+
+      buffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.bufferData(
+        gl.ARRAY_BUFFER,
+        new Float32Array([-1, -1, 3, -1, -1, 3]),
+        gl.STATIC_DRAW
+      );
+
+      const posLoc = gl.getAttribLocation(program, "a_pos");
+      gl.enableVertexAttribArray(posLoc);
+      gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+
+      uniforms = {
+        res: gl.getUniformLocation(program, "u_res"),
+        time: gl.getUniformLocation(program, "u_time"),
+        mouse: gl.getUniformLocation(program, "u_mouse"),
+        push: gl.getUniformLocation(program, "u_push"),
+        reveal: gl.getUniformLocation(program, "u_reveal"),
+        intensity: gl.getUniformLocation(program, "u_intensity"),
+        height: gl.getUniformLocation(program, "u_height"),
+        amber: gl.getUniformLocation(program, "u_amber")
+      };
+
+      return true;
+    }
+
+    function resizeSmokeCanvas() {
+      if (!smokeCanvas || useFallback) return;
+      const rect = finaleEl.getBoundingClientRect();
+      const scale = isMobileLayout() ? 0.4 : 0.5;
+      const w = Math.max(1, Math.round(rect.width * scale));
+      const h = Math.max(1, Math.round(rect.height * scale));
+      if (smokeCanvas.width !== w || smokeCanvas.height !== h) {
+        smokeCanvas.width = w;
+        smokeCanvas.height = h;
+      }
+      if (gl) {
+        gl.viewport(0, 0, w, h);
+        if (reducedMotion) drawSmokeFrame();
+      }
+    }
+    resizeSmokeFn = resizeSmokeCanvas;
+
+    function computeRevealFraction() {
+      if (reducedMotion) return 1.0;
+      const rect = finaleEl.getBoundingClientRect();
+      const vh = window.innerHeight || 1;
+      const visibleH = Math.max(0, Math.min(rect.bottom, vh) - Math.max(rect.top, 0));
+      const denom = Math.max(1, Math.min(rect.height || vh, vh));
+      return Math.min(Math.max(visibleH / denom, 0), 1);
+    }
+
+    function drawSmokeFrame() {
+      if (!gl || !program || useFallback || gl.isContextLost()) return;
+      const w = smokeCanvas.width || 1;
+      const h = smokeCanvas.height || 1;
+      const reveal = computeRevealFraction();
+
+      gl.useProgram(program);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.uniform2f(uniforms.res, w, h);
+      gl.uniform1f(uniforms.time, elapsedTime);
+      gl.uniform2f(uniforms.mouse, mouseX, mouseY);
+      gl.uniform1f(uniforms.push, pushVal);
+      gl.uniform1f(uniforms.reveal, reveal);
+      gl.uniform1f(uniforms.intensity, typeof smokeCfg.intensity === "number" ? smokeCfg.intensity : 0.6);
+      gl.uniform1f(uniforms.height, typeof smokeCfg.height === "number" ? smokeCfg.height : 0.9);
+      gl.uniform1f(uniforms.amber, typeof smokeCfg.amber === "number" ? smokeCfg.amber : 0.8);
+
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+
+    function stopSmokeRaf() {
+      if (smokeRafId) {
+        cancelAnimationFrame(smokeRafId);
+        smokeRafId = 0;
+      }
+    }
+
+    function smokeTick(now) {
+      if (!isFinaleInView || document.hidden || useFallback || reducedMotion) {
+        smokeRafId = 0;
+        return;
+      }
+
+      smokeRafId = requestAnimationFrame(smokeTick);
+
+      // Cap mobile FPS to ~30fps
+      if (isMobileLayout() && now - lastDrawTime < 32) {
+        return;
+      }
+      lastDrawTime = now;
+
+      const dtSec = Math.min(Math.max((now - lastTickTime) * 0.001, 0.001), 0.1);
+      lastTickTime = now;
+      const speed = typeof smokeCfg.speed === "number" ? smokeCfg.speed : 1.0;
+      elapsedTime += dtSec * speed;
+
+      // Ease pointer coordinates & decay push when idle or outside
+      mouseX += (targetMouseX - mouseX) * 0.12;
+      mouseY += (targetMouseY - mouseY) * 0.12;
+      const wantPush = (pointerInside && (now - lastMoveAt < 180)) ? 1.0 : 0.0;
+      pushVal += (wantPush - pushVal) * 0.08;
+
+      drawSmokeFrame();
+    }
+
+    function startSmokeRaf() {
+      if (reducedMotion || useFallback || smokeRafId || !isFinaleInView || document.hidden) return;
+      lastTickTime = performance.now();
+      smokeRafId = requestAnimationFrame(smokeTick);
+    }
+
+    if (initWebGLContext()) {
+      resizeSmokeCanvas();
+      if (reducedMotion) {
+        drawSmokeFrame();
+      }
+    }
+
+    if (smokeCanvas) {
+      smokeCanvas.addEventListener("webglcontextlost", (e) => {
+        e.preventDefault();
+        stopSmokeRaf();
+        if (fallbackEl) fallbackEl.classList.add("active");
+      }, false);
+
+      smokeCanvas.addEventListener("webglcontextrestored", () => {
+        if (fallbackEl) fallbackEl.classList.remove("active");
+        if (initWebGLContext()) {
+          resizeSmokeCanvas();
+          if (reducedMotion) drawSmokeFrame();
+          else startSmokeRaf();
+        }
+      }, false);
+    }
+
+    if (!reducedMotion) {
+      finaleEl.addEventListener("pointermove", (e) => {
+        const rect = finaleEl.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
+        targetMouseX = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1);
+        targetMouseY = Math.min(Math.max(1.0 - (e.clientY - rect.top) / rect.height, 0), 1);
+        pointerInside = true;
+        lastMoveAt = performance.now();
+      }, { passive: true });
+
+      const releasePointer = () => {
+        pointerInside = false;
+      };
+      finaleEl.addEventListener("pointerleave", releasePointer, { passive: true });
+      finaleEl.addEventListener("pointercancel", releasePointer, { passive: true });
+    }
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        stopSmokeRaf();
+      } else {
+        startSmokeRaf();
+      }
+    });
 
     if ("IntersectionObserver" in window) {
-      const creditsObserver = new IntersectionObserver((entries) => {
+      const finaleObserver = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
-          isCreditsInView = entry.isIntersecting;
-          creditsSectionEl.classList.toggle("in-view", isCreditsInView);
-          setSectionNavHidden(isCreditsInView);
-
-          if (isCreditsInView) {
-            targetC = creditsScrollPx > 0 ? Math.min(Math.max((window.scrollY - creditsTop) / creditsScrollPx, 0), 1) : 0;
-            startCreditsRafLoop();
+          isFinaleInView = entry.isIntersecting;
+          finaleEl.classList.toggle("in-view", isFinaleInView);
+          if (closingLineEl && isFinaleInView) {
+            closingLineEl.classList.add("is-visible");
+          }
+          if (isFinaleInView) {
+            startSmokeRaf();
           } else {
-            // Settle cleanly at boundary when scrolled past or above
-            targetC = window.scrollY >= creditsTop + creditsScrollPx ? 1 : 0;
-            smoothedC = targetC;
-            renderCredits(smoothedC);
+            stopSmokeRaf();
           }
         });
       }, { threshold: 0 });
-      creditsObserver.observe(creditsSectionEl);
+      finaleObserver.observe(finaleEl);
+    } else {
+      isFinaleInView = true;
+      finaleEl.classList.add("in-view");
+      if (closingLineEl) closingLineEl.classList.add("is-visible");
+      startSmokeRaf();
     }
   }
 
@@ -1483,17 +1675,14 @@
      12. NATIVE SCROLL LISTENER (Zero layout reads, zero scroll-jacking)
      -------------------------------------------------------------------------- */
   function onScroll() {
-    if (pinWrap) {
-      const { wrapHeight, vh } = getStageMetrics();
-      const maxS = Math.max(0, wrapHeight - vh);
-      targetS = Math.min(Math.max(window.scrollY - cachedWrapTop, 0), maxS);
-      startRafLoop();
-    }
+    if (!pinWrap) return;
 
-    if (!prefersReducedMotion && isCreditsInView && creditsScrollPx > 0) {
-      targetC = Math.min(Math.max((window.scrollY - creditsTop) / creditsScrollPx, 0), 1);
-      startCreditsRafLoop();
-    }
+    const { wrapHeight, vh } = getStageMetrics();
+    const maxS = Math.max(0, wrapHeight - vh);
+
+    targetS = Math.min(Math.max(window.scrollY - cachedWrapTop, 0), maxS);
+
+    startRafLoop();
   }
 
   /* --------------------------------------------------------------------------
@@ -1672,7 +1861,7 @@
     hydrateContent();
     syncStageLayout(true);
     initRingControls();
-    initCredits();
+    initSmokeFinale();
     initTextScramble();
     initAuraCursor();
     initHeroLantern();

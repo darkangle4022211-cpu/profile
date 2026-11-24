@@ -31,11 +31,9 @@ window.AURA_CONFIG = {
   RING_STEP_VH_MOBILE: 38,
   EXIT_VH_MOBILE: 30,
 
-  // Act 3: Closing Credits
-  CREDITS_SCROLL_VH: 450,
-  CREDITS_TILT_DEG: 50,
-  CREDITS_TOOLS: ["Google Antigravity", "Google AI Studio", "Gemini", "Claude"], // EDIT ME
-  CREDITS_CLOSING_LINE: "Every great build starts with a conversation.",
+  // Smoke Finale
+  CLOSING_LINE: "Every great build starts with a conversation.",
+  SMOKE: { intensity: 0.6, speed: 1.0, height: 0.9, amber: 0.8 },
 
   // Act 1: Cinematic Hero Quotes
   HERO_QUOTES: [

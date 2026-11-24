@@ -20,10 +20,16 @@ window.AURA_CONFIG = {
   ],
 
   // Pinned Stage & 3D Ring Timing (in vh units)
-  HERO_SCROLL_VH: 550,
-  TRANSITION_VH: 100,
-  RING_STEP_VH: 80,
-  EXIT_VH: 60,
+  HERO_SCROLL_VH: 300,
+  TRANSITION_VH: 65,
+  RING_STEP_VH: 50,
+  EXIT_VH: 40,
+
+  // Mobile-optimized scroll distances (responsive touch ergonomics)
+  HERO_SCROLL_VH_MOBILE: 200,
+  TRANSITION_VH_MOBILE: 45,
+  RING_STEP_VH_MOBILE: 38,
+  EXIT_VH_MOBILE: 30,
 
   // Act 1: Cinematic Hero Quotes
   HERO_QUOTES: [

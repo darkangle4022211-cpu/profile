@@ -51,6 +51,22 @@
   let emberGlow = 0;
   let fogOffset = 0;
 
+  // Cached Layout & DOM State (avoids layout thrashing and per-frame DOM queries)
+  let cachedVw = 0;
+  let cachedVh = 0;
+  let cachedWrapTop = 0;
+  let cachedMetrics = null;
+  let cachedRadius = 420;
+  let lastActiveCardIdx = -1;
+  let heroLayerEl = null;
+  let ringLayerEl = null;
+  let projectRingEl = null;
+  let counterCurrentEl = null;
+  let beat5El = null;
+  let ringPillEls = [];
+  let ringCardEls = [];
+  let cardRenderState = [];
+
   // Prevent scroll restoration jump
   if ("scrollRestoration" in history) {
     history.scrollRestoration = "manual";
@@ -59,17 +75,32 @@
   /* --------------------------------------------------------------------------
      1. STAGE METRICS & SCROLL BUDGET
      -------------------------------------------------------------------------- */
-  function getStageMetrics() {
-    const vh = window.innerHeight;
+  function isMobileLayout() {
+    return window.innerWidth <= 768 || window.matchMedia("(max-aspect-ratio: 1/1)").matches;
+  }
+
+  function isPortraitMedia() {
+    return window.matchMedia("(max-aspect-ratio: 1/1)").matches;
+  }
+
+  function computeStageMetrics() {
+    const vh = cachedVh || window.innerHeight;
+    const mobile = isMobileLayout();
     const numProjects = (Array.isArray(cfg.PROJECTS) && cfg.PROJECTS.length > 0) ? cfg.PROJECTS.length : 5;
-    const heroScroll = (cfg.HERO_SCROLL_VH || 550) * 0.01 * vh;
-    const transition = (cfg.TRANSITION_VH || 100) * 0.01 * vh;
-    const ringScroll = (numProjects - 1) * (cfg.RING_STEP_VH || 80) * 0.01 * vh;
-    const exit = (cfg.EXIT_VH || 60) * 0.01 * vh;
+    const heroVh = mobile ? (cfg.HERO_SCROLL_VH_MOBILE || 200) : (cfg.HERO_SCROLL_VH || 300);
+    const transVh = mobile ? (cfg.TRANSITION_VH_MOBILE || 45) : (cfg.TRANSITION_VH || 65);
+    const stepVh = mobile ? (cfg.RING_STEP_VH_MOBILE || 38) : (cfg.RING_STEP_VH || 50);
+    const exitVh = mobile ? (cfg.EXIT_VH_MOBILE || 30) : (cfg.EXIT_VH || 40);
+
+    const heroScroll = heroVh * 0.01 * vh;
+    const transition = transVh * 0.01 * vh;
+    const ringScroll = (numProjects - 1) * stepVh * 0.01 * vh;
+    const exit = exitVh * 0.01 * vh;
     const wrapHeight = vh + heroScroll + transition + ringScroll + exit;
 
     return {
       vh,
+      mobile,
       numProjects,
       heroScroll,
       transition,
@@ -79,17 +110,55 @@
     };
   }
 
-  function updateWrapHeight() {
-    if (pinWrap) {
-      const { wrapHeight } = getStageMetrics();
-      pinWrap.style.height = `${Math.round(wrapHeight)}px`;
+  function getStageMetrics() {
+    if (!cachedMetrics) {
+      cachedMetrics = computeStageMetrics();
     }
+    return cachedMetrics;
+  }
+
+  function layoutRingCards() {
+    if (!ringCardEls.length) return;
+    const vw = window.innerWidth;
+    if (isMobileLayout()) {
+      const cardWidth = Math.min(vw * 0.86, 380);
+      cachedRadius = Math.round(Math.max(cardWidth * 0.96, 330));
+    } else {
+      cachedRadius = Math.round(Math.min(Math.max(vw * 0.42, 380), 520));
+    }
+
+    const anglePerCard = 360 / ringCardEls.length;
+    ringCardEls.forEach((card, i) => {
+      card.style.transform = `rotateY(${i * anglePerCard}deg) translateZ(${cachedRadius}px)`;
+    });
+  }
+
+  function syncStageLayout(force = false) {
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    // Ignore minor vertical browser chrome (address bar) show/hide changes on mobile
+    if (!force && cachedVw === vw && Math.abs(vh - cachedVh) <= 120) {
+      return;
+    }
+
+    cachedVw = vw;
+    cachedVh = vh;
+    cachedMetrics = computeStageMetrics();
+
+    if (pinWrap) {
+      pinWrap.style.height = `${Math.round(cachedMetrics.wrapHeight)}px`;
+      cachedWrapTop = pinWrap.offsetTop;
+    }
+
+    layoutRingCards();
+    resizeCanvas();
   }
 
   /* --------------------------------------------------------------------------
      2. FILM GRAIN CANVAS GENERATOR
      -------------------------------------------------------------------------- */
   function initFilmGrain() {
+    if (isMobileLayout() || window.matchMedia("(pointer: coarse)").matches) return;
     const grainCanvas = document.getElementById("grain-canvas");
     if (!grainCanvas) return;
     const gCtx = grainCanvas.getContext("2d");
@@ -337,16 +406,23 @@
         `;
       }).join("");
     }
+    heroLayerEl = document.getElementById("hero-layer");
+    ringLayerEl = document.getElementById("ring-layer");
+    projectRingEl = document.getElementById("project-ring");
+    counterCurrentEl = document.getElementById("counter-current");
+    beat5El = document.getElementById("beat-5");
+    ringPillEls = Array.from(document.querySelectorAll(".ring-pill"));
+    ringCardEls = Array.from(document.querySelectorAll(".ring-card"));
+    cardRenderState = ringCardEls.map(() => ({ opacity: -1, active: false, pointer: "", visible: true }));
+    lastActiveCardIdx = -1;
   }
 
   /* --------------------------------------------------------------------------
      4. CANVAS SIZING & DPR RESOLUTION
      -------------------------------------------------------------------------- */
   function resizeCanvas() {
-    updateWrapHeight();
-
-    const isMobile = window.matchMedia("(max-aspect-ratio: 1/1)").matches;
-    const dpr = Math.min(window.devicePixelRatio || 1, isMobile ? 1.5 : 2.0);
+    const mobile = isMobileLayout();
+    const dpr = Math.min(window.devicePixelRatio || 1, mobile ? 1.25 : 2.0);
     const rect = canvas.getBoundingClientRect();
     const w = Math.round(rect.width * dpr);
     const h = Math.round(rect.height * dpr);
@@ -365,8 +441,8 @@
      5. FRAME PRELOADER & PROCEDURAL FALLBACK
      -------------------------------------------------------------------------- */
   function getFrameUrl(index) {
-    const isMobile = window.matchMedia("(max-aspect-ratio: 1/1)").matches;
-    const template = (isMobile && cfg.FRAME_PATH_MOBILE) ? cfg.FRAME_PATH_MOBILE : (cfg.FRAME_PATH || "frames/frame_{n}.webp");
+    const portrait = isPortraitMedia();
+    const template = (portrait && cfg.FRAME_PATH_MOBILE) ? cfg.FRAME_PATH_MOBILE : (cfg.FRAME_PATH || "frames/frame_{n}.webp");
     const num = String(index + 1).padStart(3, "0");
     return template.replace("{n}", num) + "?v=8";
   }
@@ -653,13 +729,14 @@
     const dt = Math.min(Math.max(now - lastRafTime, 1), 50);
     lastRafTime = now;
 
-    const { heroScroll, transition, ringScroll, exit } = getStageMetrics();
+    const { mobile, heroScroll, transition, ringScroll, exit } = getStageMetrics();
 
-    // Smoothed scroll: smoothed += (s - smoothed) * (1 - Math.pow(1 - 0.09, dt/16.67))
-    const decay = 1 - Math.pow(1 - 0.09, dt / 16.67);
+    // Mobile-responsive scroll smoothing (snappier tracking for native touch inertia)
+    const smoothFactor = mobile ? 0.24 : 0.11;
+    const decay = 1 - Math.pow(1 - smoothFactor, dt / 16.67);
     smoothedS += (targetS - smoothedS) * decay;
 
-    if (Math.abs(targetS - smoothedS) < 0.2) {
+    if (Math.abs(targetS - smoothedS) < 0.35) {
       smoothedS = targetS;
     }
 
@@ -669,24 +746,30 @@
     const r = ringScroll > 0 ? Math.min(Math.max((smoothedS - heroScroll - transition) / ringScroll, 0), 1) : 0;
     const x = exit > 0 ? Math.min(Math.max((smoothedS - heroScroll - transition - ringScroll) / exit, 0), 1) : 0;
 
-    // Phase (a): Hero video frames & narrative typography
-    currentFrameFloat = progressToFrame(p);
-    drawCurrentFrame(isProceduralFallback);
-    updateNarrativeBeats(p, q);
-
-    // Phase (b): Slow push-in on hero canvas (scale 1 to 1.35, origin 50% 38%, fade into darkness)
-    if (canvas) {
-      const heroScale = 1 + q * 0.35;
-      canvas.style.transformOrigin = "50% 38%";
-      canvas.style.transform = `scale(${heroScale.toFixed(4)})`;
-      canvas.style.opacity = Math.max(0, 1 - q * 1.15).toFixed(3);
+    // Phase (a) & (b): Hero video frames, narrative beats, and slow push-in
+    const heroHidden = q >= 0.99;
+    if (heroLayerEl) {
+      heroLayerEl.style.visibility = heroHidden ? "hidden" : "visible";
+    }
+    if (!heroHidden) {
+      currentFrameFloat = progressToFrame(p);
+      drawCurrentFrame(isProceduralFallback);
+      updateNarrativeBeats(p, q);
+      if (canvas) {
+        const heroScale = 1 + q * 0.35;
+        canvas.style.transformOrigin = "50% 38%";
+        canvas.style.transform = `scale3d(${heroScale.toFixed(4)}, ${heroScale.toFixed(4)}, 1)`;
+        canvas.style.opacity = Math.max(0, 1 - q * 1.15).toFixed(3);
+      }
+    } else if (canvas && canvas.style.opacity !== "0") {
+      canvas.style.opacity = "0";
     }
 
     // Phase (c): 3D Ring emergence, rotation, and exit
     update3DRing(q, r, x);
 
     // Check if settled
-    const isSettled = Math.abs(targetS - smoothedS) < 0.2;
+    const isSettled = Math.abs(targetS - smoothedS) < 0.35;
     if (!isProceduralFallback && isSettled) {
       isRafRunning = false;
       return;
@@ -716,22 +799,21 @@
     }
 
     // Beat 5 (The Creed): active from 0.80, dissolves with push-in (q) with NO translateY
-    const beat5 = document.getElementById("beat-5");
-    if (beat5) {
+    if (beat5El) {
       if (p >= 0.80) {
-        beat5.classList.add("active");
+        beat5El.classList.add("active");
         if (q > 0) {
           const beat5Alpha = Math.max(0, 1 - q * 2.5);
-          beat5.style.opacity = beat5Alpha.toFixed(3);
-          beat5.style.pointerEvents = (beat5Alpha > 0.1) ? "auto" : "none";
+          beat5El.style.opacity = beat5Alpha.toFixed(3);
+          beat5El.style.pointerEvents = (beat5Alpha > 0.1) ? "auto" : "none";
         } else {
-          beat5.style.opacity = "1";
-          beat5.style.pointerEvents = "auto";
+          beat5El.style.opacity = "1";
+          beat5El.style.pointerEvents = "auto";
         }
       } else {
-        beat5.classList.remove("active");
-        beat5.style.opacity = "0";
-        beat5.style.pointerEvents = "none";
+        beat5El.classList.remove("active");
+        beat5El.style.opacity = "0";
+        beat5El.style.pointerEvents = "none";
       }
     }
   }
@@ -740,137 +822,159 @@
      11. 3D RING EMERGENCE, ROTATION & NAVIGATION
      -------------------------------------------------------------------------- */
   function update3DRing(q, r, x) {
-    const ringLayer = document.getElementById("ring-layer");
-    const projectRing = document.getElementById("project-ring");
-    const counterCurrent = document.getElementById("counter-current");
-    const pills = Array.from(document.querySelectorAll(".ring-pill"));
-    const cards = Array.from(document.querySelectorAll(".ring-card"));
+    if (!ringLayerEl || !projectRingEl || !ringCardEls.length) return;
 
-    if (!ringLayer || !projectRing || !cards.length) return;
-
-    // Ring layer opacity & interactivity
+    // Ring layer opacity & GPU visibility culling
     const ringOpacity = (q > 0) ? Math.min(1, q * 1.35) * Math.max(0, 1 - x * 1.35) : 0;
-    ringLayer.style.opacity = ringOpacity.toFixed(3);
     const isInteractive = (q >= 0.75 && x < 0.25);
-    ringLayer.style.pointerEvents = isInteractive ? "auto" : "none";
 
-    if (ringOpacity <= 0.001) {
+    if (ringOpacity <= 0.002) {
+      if (ringLayerEl.style.visibility !== "hidden") {
+        ringLayerEl.style.opacity = "0";
+        ringLayerEl.style.visibility = "hidden";
+        ringLayerEl.style.pointerEvents = "none";
+      }
       return;
     }
 
-    // Cylinder radius
-    const isMobile = window.matchMedia("(max-aspect-ratio: 1/1)").matches;
-    const radius = isMobile
-      ? Math.round(Math.min(window.innerWidth * 0.52, 380))
-      : Math.round(Math.min(Math.max(window.innerWidth * 0.42, 380), 520));
+    if (ringLayerEl.style.visibility !== "visible") {
+      ringLayerEl.style.visibility = "visible";
+    }
+    ringLayerEl.style.opacity = ringOpacity.toFixed(3);
+    ringLayerEl.style.pointerEvents = isInteractive ? "auto" : "none";
 
-    // Depth emergence (-600px -> 0px) and forward exit push (0px -> +300px)
-    const depthZ = (1 - q) * -600 + x * 300;
+    // Depth emergence & exit push
+    const mobile = isMobileLayout();
+    const exitPush = mobile ? 180 : 280;
+    const depthZ = (1 - q) * -520 + x * exitPush;
 
     // Rotation angle
-    const numCards = cards.length;
+    const numCards = ringCardEls.length;
     const anglePerCard = 360 / numCards; // 72 deg for 5 cards
     const totalSpan = (numCards - 1) * anglePerCard; // 288 deg
     const currentAngle = r * totalSpan;
 
-    projectRing.style.transform = `translateZ(${(-radius + depthZ).toFixed(1)}px) rotateY(${-currentAngle.toFixed(2)}deg)`;
+    projectRingEl.style.transform = `translateZ(${(-cachedRadius + depthZ).toFixed(1)}px) rotateY(${(-currentAngle).toFixed(2)}deg)`;
 
     // Active card calculation
     const activeIdx = Math.min(Math.max(Math.round(r * (numCards - 1)), 0), numCards - 1);
 
-    cards.forEach((card, i) => {
+    for (let i = 0; i < numCards; i++) {
+      const card = ringCardEls[i];
+      const st = cardRenderState[i];
       const cardAngle = i * anglePerCard;
-      card.style.transform = `rotateY(${cardAngle}deg) translateZ(${radius}px)`;
 
-      // Angular distance from active camera view
       let diff = (cardAngle - currentAngle) % 360;
       if (diff > 180) diff -= 360;
       if (diff < -180) diff += 360;
 
       const absDiff = Math.abs(diff);
+      const isFront = absDiff < anglePerCard * 0.48;
       const cosVal = Math.max(0, Math.cos(diff * Math.PI / 180));
+      const targetOp = isFront ? 1 : (cosVal <= 0.14 ? 0 : Math.pow(cosVal, 1.55) * 0.65);
+      const targetVisible = targetOp > 0.01;
+      const targetPointer = (isFront && isInteractive) ? "auto" : "none";
 
-      if (absDiff < anglePerCard * 0.5) {
-        card.classList.add("active-card");
-        card.style.opacity = "1";
-        card.style.pointerEvents = isInteractive ? "auto" : "none";
-      } else {
-        card.classList.remove("active-card");
-        card.style.opacity = Math.max(0.08, cosVal * 0.75).toFixed(3);
-        card.style.pointerEvents = "none";
+      if (st.active !== isFront) {
+        st.active = isFront;
+        card.classList.toggle("active-card", isFront);
       }
-    });
-
-    if (counterCurrent) {
-      counterCurrent.textContent = String(activeIdx + 1).padStart(2, "0");
+      if (st.visible !== targetVisible) {
+        st.visible = targetVisible;
+        card.style.visibility = targetVisible ? "visible" : "hidden";
+      }
+      if (Math.abs(st.opacity - targetOp) > 0.008) {
+        st.opacity = targetOp;
+        card.style.opacity = targetOp === 1 ? "1" : targetOp.toFixed(2);
+      }
+      if (st.pointer !== targetPointer) {
+        st.pointer = targetPointer;
+        card.style.pointerEvents = targetPointer;
+      }
     }
 
-    pills.forEach((p, idx) => {
-      p.classList.toggle("active", idx === activeIdx);
-    });
+    if (activeIdx !== lastActiveCardIdx) {
+      lastActiveCardIdx = activeIdx;
+      if (counterCurrentEl) {
+        counterCurrentEl.textContent = String(activeIdx + 1).padStart(2, "0");
+      }
+      for (let i = 0; i < ringPillEls.length; i++) {
+        ringPillEls[i].classList.toggle("active", i === activeIdx);
+      }
+    }
   }
 
   function navigateToCard(targetIdx) {
-    if (!pinWrap) return;
-    const cards = Array.from(document.querySelectorAll(".ring-card"));
-    if (!cards.length) return;
+    if (!pinWrap || !ringCardEls.length) return;
 
-    const numCards = cards.length;
+    const numCards = ringCardEls.length;
     const clamped = Math.min(Math.max(targetIdx, 0), numCards - 1);
-
-    const rect = pinWrap.getBoundingClientRect();
-    const wrapTop = window.scrollY + rect.top;
     const { heroScroll, transition, ringScroll } = getStageMetrics();
 
-    const targetScroll = wrapTop + heroScroll + transition + (clamped / (numCards - 1)) * ringScroll + 2;
+    const targetScroll = cachedWrapTop + heroScroll + transition + (clamped / (numCards - 1)) * ringScroll + 2;
     window.scrollTo({ top: targetScroll, behavior: "smooth" });
   }
 
   function initRingControls() {
     const prevBtn = document.getElementById("ring-prev-btn");
     const nextBtn = document.getElementById("ring-next-btn");
-    const pills = Array.from(document.querySelectorAll(".ring-pill"));
+
+    const getCurrentIdx = () => {
+      const { heroScroll, transition, ringScroll, numProjects } = getStageMetrics();
+      const r = ringScroll > 0 ? Math.min(Math.max((smoothedS - heroScroll - transition) / ringScroll, 0), 1) : 0;
+      return Math.round(r * (numProjects - 1));
+    };
 
     if (prevBtn) {
-      prevBtn.addEventListener("click", () => {
-        const { heroScroll, transition, ringScroll } = getStageMetrics();
-        const numCards = (Array.isArray(cfg.PROJECTS) && cfg.PROJECTS.length > 0) ? cfg.PROJECTS.length : 5;
-        const r = ringScroll > 0 ? Math.min(Math.max((smoothedS - heroScroll - transition) / ringScroll, 0), 1) : 0;
-        const currentIdx = Math.round(r * (numCards - 1));
-        navigateToCard(currentIdx - 1);
-      });
+      prevBtn.addEventListener("click", () => navigateToCard(getCurrentIdx() - 1));
     }
 
     if (nextBtn) {
-      nextBtn.addEventListener("click", () => {
-        const { heroScroll, transition, ringScroll } = getStageMetrics();
-        const numCards = (Array.isArray(cfg.PROJECTS) && cfg.PROJECTS.length > 0) ? cfg.PROJECTS.length : 5;
-        const r = ringScroll > 0 ? Math.min(Math.max((smoothedS - heroScroll - transition) / ringScroll, 0), 1) : 0;
-        const currentIdx = Math.round(r * (numCards - 1));
-        navigateToCard(currentIdx + 1);
-      });
+      nextBtn.addEventListener("click", () => navigateToCard(getCurrentIdx() + 1));
     }
 
-    pills.forEach(pill => {
+    ringPillEls.forEach(pill => {
       pill.addEventListener("click", () => {
         const idx = parseInt(pill.getAttribute("data-index") || "0", 10);
         navigateToCard(idx);
       });
     });
+
+    // Optional passive horizontal touch swipe on card stage (never blocks native vertical scroll)
+    if (ringLayerEl) {
+      let touchStartX = 0;
+      let touchStartY = 0;
+      let touchStartT = 0;
+
+      ringLayerEl.addEventListener("touchstart", (e) => {
+        if (e.touches.length !== 1) return;
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+        touchStartT = performance.now();
+      }, { passive: true });
+
+      ringLayerEl.addEventListener("touchend", (e) => {
+        if (!e.changedTouches.length) return;
+        const dx = e.changedTouches[0].clientX - touchStartX;
+        const dy = e.changedTouches[0].clientY - touchStartY;
+        const dt = performance.now() - touchStartT;
+        if (dt < 500 && Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.4) {
+          navigateToCard(getCurrentIdx() + (dx < 0 ? 1 : -1));
+        }
+      }, { passive: true });
+    }
   }
 
   /* --------------------------------------------------------------------------
-     12. NATIVE SCROLL LISTENER (No scroll-jacking)
+     12. NATIVE SCROLL LISTENER (Zero layout reads, zero scroll-jacking)
      -------------------------------------------------------------------------- */
   function onScroll() {
     if (!pinWrap) return;
 
-    const rect = pinWrap.getBoundingClientRect();
-    const wrapTop = window.scrollY + rect.top;
     const { wrapHeight, vh } = getStageMetrics();
     const maxS = Math.max(0, wrapHeight - vh);
 
-    targetS = Math.min(Math.max(window.scrollY - wrapTop, 0), maxS);
+    targetS = Math.min(Math.max(window.scrollY - cachedWrapTop, 0), maxS);
 
     startRafLoop();
   }
@@ -935,7 +1039,7 @@
      14. AMBIENT NOIR CURSOR FOLLOWER & FONT FOCUS AURA
      -------------------------------------------------------------------------- */
   function initAuraCursor() {
-    if (window.matchMedia("(pointer: coarse)").matches) return;
+    if (isMobileLayout() || window.matchMedia("(pointer: coarse)").matches) return;
     const cursorWrap = document.getElementById("aura-cursor");
     if (!cursorWrap) return;
     const dot = cursorWrap.querySelector(".aura-cursor-dot");
@@ -1008,7 +1112,7 @@
      -------------------------------------------------------------------------- */
   function initHeroLantern() {
     const pinStage = document.getElementById("pin");
-    if (!pinStage || window.matchMedia("(pointer: coarse)").matches) return;
+    if (!pinStage || isMobileLayout() || window.matchMedia("(pointer: coarse)").matches) return;
 
     let ticking = false;
     pinStage.addEventListener("mousemove", (e) => {
@@ -1037,7 +1141,7 @@
   function init() {
     initFilmGrain();
     hydrateContent();
-    resizeCanvas();
+    syncStageLayout(true);
     initRingControls();
     initTextScramble();
     initAuraCursor();
@@ -1045,12 +1149,14 @@
 
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", () => {
-      resizeCanvas();
+      syncStageLayout(false);
       onScroll();
     }, { passive: true });
     window.addEventListener("orientationchange", () => {
-      resizeCanvas();
-      onScroll();
+      setTimeout(() => {
+        syncStageLayout(true);
+        onScroll();
+      }, 150);
     }, { passive: true });
 
     onScroll();

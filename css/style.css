@@ -85,6 +85,13 @@ body.loading-locked {
   animation: filmNoise 0.8s steps(6) infinite;
 }
 
+@media (max-width: 768px), (pointer: coarse) {
+  #grain-canvas {
+    display: none !important;
+    animation: none !important;
+  }
+}
+
 /* --- Preloader --- */
 #preloader {
   position: fixed;
@@ -182,8 +189,8 @@ body.loading-locked {
   top: 0;
   left: 0;
   width: 100%;
-  height: 100svh;
   height: 100vh;
+  height: 100svh;
   overflow: hidden;
   background-color: var(--bg);
 }
@@ -211,7 +218,6 @@ body.loading-locked {
   mix-blend-mode: normal;
   transform-origin: 50% 38%;
   will-change: transform, opacity;
-  transition: opacity 200ms ease-out;
 }
 
 /* Vignette overlay to seamlessly blend edges into pure black */
@@ -246,8 +252,14 @@ body.loading-locked {
   mix-blend-mode: screen;
 }
 
-.hero-sticky.mouse-active .hero-lantern {
+#pin.mouse-active .hero-lantern {
   opacity: 1;
+}
+
+@media (pointer: coarse) {
+  .hero-lantern {
+    display: none !important;
+  }
 }
 
 /* Scroll-linked dynamic typography overlay */
@@ -691,6 +703,7 @@ body.loading-locked {
 .ring-eyebrow {
   display: flex;
   align-items: center;
+  gap: 0.45em;
   font-family: var(--font-mono);
   font-size: 0.75rem;
   letter-spacing: 0.2em;
@@ -809,7 +822,9 @@ body.loading-locked {
   width: 100%;
   height: 100%;
   transform-style: preserve-3d;
-  background: rgba(14, 13, 11, 0.94);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  background: rgba(14, 13, 11, 0.96);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 14px;
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.9), 0 0 30px rgba(0, 0, 0, 0.6);
@@ -819,8 +834,7 @@ body.loading-locked {
   justify-content: space-between;
   box-sizing: border-box;
   will-change: transform, opacity;
-  transition: border-color var(--duration-fast) var(--ease),
-              box-shadow var(--duration-fast) var(--ease);
+  transition: border-color var(--duration-fast) var(--ease);
 }
 
 .ring-card::before {
@@ -1047,6 +1061,107 @@ body.loading-locked {
   border-color: var(--accent);
   color: #FFFFFF;
   box-shadow: 0 0 12px rgba(232, 163, 61, 0.3);
+}
+
+/* Mobile 3D Ring Cards & Controls Optimization */
+@media (max-width: 768px), (max-aspect-ratio: 1/1) {
+  .ring-layer {
+    padding: 0.7rem 0.95rem;
+    touch-action: pan-y;
+  }
+
+  .ring-perspective-wrap {
+    perspective: 1000px;
+    touch-action: pan-y;
+  }
+
+  .project-ring {
+    width: min(86vw, 380px);
+    height: clamp(350px, 50svh, 435px);
+  }
+
+  .ring-card {
+    padding: 1.2rem 1.15rem;
+    box-shadow: 0 12px 26px rgba(0, 0, 0, 0.85);
+    transition: none;
+  }
+
+  .ring-card.active-card {
+    box-shadow: 0 14px 30px rgba(0, 0, 0, 0.9), 0 0 18px var(--card-theme, rgba(232, 163, 61, 0.18));
+  }
+
+  .card-identity {
+    gap: 0.85rem;
+  }
+
+  .card-app-icon-wrap {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    border-radius: 10px;
+    padding: 6px;
+  }
+
+  .card-kicker {
+    font-size: 0.62rem;
+    letter-spacing: 0.14em;
+  }
+
+  .card-title {
+    font-size: clamp(1.2rem, 4.8vw, 1.48rem);
+  }
+
+  .card-body-row {
+    gap: 0.75rem;
+  }
+
+  .card-desc {
+    font-size: clamp(0.84rem, 3.6vw, 0.92rem);
+    line-height: 1.48;
+  }
+
+  .card-tech-row {
+    gap: 0.36rem;
+  }
+
+  .tech-tag {
+    font-size: 0.61rem;
+    padding: 0.18rem 0.48rem;
+  }
+
+  .card-actions-row {
+    gap: 0.5rem;
+    padding-top: 0.65rem;
+  }
+
+  .btn-action-primary,
+  .btn-action-secondary {
+    font-size: 0.67rem;
+    letter-spacing: 0.08em;
+    padding: 0.5rem 0.78rem;
+    white-space: nowrap;
+  }
+
+  .ring-controls {
+    flex-direction: column;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .ring-pills {
+    justify-content: center;
+    gap: 0.32rem;
+  }
+
+  .ring-pill {
+    font-size: 0.61rem;
+    letter-spacing: 0.09em;
+    padding: 0.24rem 0.58rem;
+  }
+
+  .ring-arrows {
+    gap: 0.75rem;
+  }
 }
 
 /* --- PLAIN SECTIONS DIRECTLY ON DARK VOID --- */
@@ -1522,8 +1637,8 @@ body.loading-locked {
   box-shadow: 0 0 25px rgba(232, 163, 61, 0.4);
 }
 
-/* Touch devices: cleanly disabled */
-@media (pointer: coarse) {
+/* Touch devices & narrow mobile viewports: cleanly disabled */
+@media (pointer: coarse), (max-width: 768px) {
   .aura-cursor {
     display: none !important;
   }

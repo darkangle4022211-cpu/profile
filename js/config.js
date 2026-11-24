@@ -19,6 +19,12 @@ window.AURA_CONFIG = {
     [1.00, 119]
   ],
 
+  // Pinned Stage & 3D Ring Timing (in vh units)
+  HERO_SCROLL_VH: 550,
+  TRANSITION_VH: 100,
+  RING_STEP_VH: 80,
+  EXIT_VH: 60,
+
   // Act 1: Cinematic Hero Quotes
   HERO_QUOTES: [
     {

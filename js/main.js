@@ -30,21 +30,20 @@
   }
 
   // DOM Elements
-  const heroEl = document.getElementById("hero");
+  const pinWrap = document.getElementById("pin-wrap");
   const canvas = document.getElementById("hero-canvas");
   const ctx = canvas.getContext("2d", { alpha: false });
   const preloader = document.getElementById("preloader");
   const preloaderBar = document.getElementById("preloader-bar");
   const preloaderStatus = document.getElementById("preloader-status");
   const devNotice = document.getElementById("dev-notice");
-  const panelsContainer = document.getElementById("panels-container");
-  const tabIndicator = document.getElementById("tab-indicator");
 
   // State Variables
   const frames = new Array(frameCount);
   let framesLoadedCount = 0;
   let isProceduralFallback = false;
-  let targetProgress = 0;
+  let targetS = 0;
+  let smoothedS = 0;
   let currentFrameFloat = 0;
   let lastDrawnFrame = -1;
   let isRafRunning = false;
@@ -58,7 +57,37 @@
   }
 
   /* --------------------------------------------------------------------------
-     1. FILM GRAIN CANVAS GENERATOR
+     1. STAGE METRICS & SCROLL BUDGET
+     -------------------------------------------------------------------------- */
+  function getStageMetrics() {
+    const vh = window.innerHeight;
+    const numProjects = (Array.isArray(cfg.PROJECTS) && cfg.PROJECTS.length > 0) ? cfg.PROJECTS.length : 5;
+    const heroScroll = (cfg.HERO_SCROLL_VH || 550) * 0.01 * vh;
+    const transition = (cfg.TRANSITION_VH || 100) * 0.01 * vh;
+    const ringScroll = (numProjects - 1) * (cfg.RING_STEP_VH || 80) * 0.01 * vh;
+    const exit = (cfg.EXIT_VH || 60) * 0.01 * vh;
+    const wrapHeight = vh + heroScroll + transition + ringScroll + exit;
+
+    return {
+      vh,
+      numProjects,
+      heroScroll,
+      transition,
+      ringScroll,
+      exit,
+      wrapHeight
+    };
+  }
+
+  function updateWrapHeight() {
+    if (pinWrap) {
+      const { wrapHeight } = getStageMetrics();
+      pinWrap.style.height = `${Math.round(wrapHeight)}px`;
+    }
+  }
+
+  /* --------------------------------------------------------------------------
+     2. FILM GRAIN CANVAS GENERATOR
      -------------------------------------------------------------------------- */
   function initFilmGrain() {
     const grainCanvas = document.getElementById("grain-canvas");
@@ -70,7 +99,6 @@
     const buffer32 = new Uint32Array(imgData.data.buffer);
     const len = buffer32.length;
     for (let i = 0; i < len; i++) {
-      // Monochromatic subtle noise
       const noise = (Math.random() * 255) | 0;
       buffer32[i] = (45 << 24) | (noise << 16) | (noise << 8) | noise;
     }
@@ -78,7 +106,7 @@
   }
 
   /* --------------------------------------------------------------------------
-     2. CONTENT HYDRATION (From js/config.js)
+     3. CONTENT HYDRATION (From js/config.js)
      -------------------------------------------------------------------------- */
   function hydrateContent() {
     // Document Title & Meta
@@ -155,29 +183,15 @@
       }
     }
 
-    // Footer Note
-    const footerNote = document.getElementById("footer-note");
-    if (footerNote && cfg.FOOTER_NOTE) footerNote.textContent = cfg.FOOTER_NOTE;
+    // 3D Ring Project Cards
+    const projectRing = document.getElementById("project-ring");
+    const ringPills = document.getElementById("ring-pills");
+    const counterTotal = document.getElementById("counter-total");
 
-    // Contact Action
-    const contactBtn = document.getElementById("contact-button");
-    if (contactBtn && cfg.CONTACT) {
-      if (cfg.CONTACT.type === "whatsapp") {
-        const cleanNumber = String(cfg.CONTACT.value).replace(/[^0-9]/g, "");
-        contactBtn.href = `https://wa.me/${cleanNumber}`;
-      } else {
-        contactBtn.href = `mailto:${cfg.CONTACT.value}`;
-      }
-    }
-
-    // Projects Single-Card Slide Track
-    const projectsTrack = document.getElementById("projects-track");
-    const pillsList = document.getElementById("projects-pills-list");
-
-    if (projectsTrack && Array.isArray(cfg.PROJECTS)) {
-      projectsTrack.innerHTML = cfg.PROJECTS.map((proj, idx) => {
+    if (projectRing && Array.isArray(cfg.PROJECTS)) {
+      projectRing.innerHTML = cfg.PROJECTS.map((proj, idx) => {
         const num = String(idx + 1).padStart(2, "0");
-        const category = proj.category || "ENGINEERING";
+        const category = proj.category || "AI WORKSTATION";
         const themeColor = proj.themeColor || "#E8A33D";
         const techTags = Array.isArray(proj.tech)
           ? proj.tech.map(t => `<span class="tech-tag">${t}</span>`).join("")
@@ -188,77 +202,75 @@
         const githubUrl = proj.githubUrl || profileUrl;
 
         return `
-          <div class="card-slide" data-index="${idx}">
-            <article class="project-card" style="--card-theme: ${themeColor};">
-              <div class="card-header-row">
-                <div class="card-identity">
-                  <div class="card-app-icon-wrap" style="--app-glow: ${themeColor};">
-                    <img src="${iconSrc}" class="card-app-icon" alt="${proj.title} icon" loading="lazy" />
-                  </div>
-                  <div class="card-heading-group">
-                    <div class="card-kicker">${category} // ${num}</div>
-                    <h3 class="card-title">${proj.title}</h3>
-                  </div>
+          <article class="ring-card" data-index="${idx}" style="--card-theme: ${themeColor};">
+            <div class="card-header-row">
+              <div class="card-identity">
+                <div class="card-app-icon-wrap" style="--app-glow: ${themeColor};">
+                  <img src="${iconSrc}" class="card-app-icon" alt="${proj.title} icon" loading="lazy" />
+                </div>
+                <div class="card-heading-group">
+                  <div class="card-kicker">${category} // ${num}</div>
+                  <h3 class="card-title">${proj.title}</h3>
                 </div>
               </div>
+            </div>
 
-              <div class="card-body-row">
-                <p class="card-desc">${proj.description}</p>
-                <div class="card-tech-row">
-                  ${techTags}
-                </div>
+            <div class="card-body-row">
+              <p class="card-desc">${proj.description}</p>
+              <div class="card-tech-row">
+                ${techTags}
               </div>
+            </div>
 
-              <div class="card-actions-row">
-                ${isLiveProfile ? `
-                  <a href="${profileUrl}" target="_blank" rel="noopener noreferrer" class="btn-action-primary">
-                    <span>VISIT PROFILE</span>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <line x1="7" y1="17" x2="17" y2="7"></line>
-                      <polyline points="7 7 17 7 17 17"></polyline>
-                    </svg>
-                  </a>
-                  <a href="${githubUrl}" target="_blank" rel="noopener noreferrer" class="btn-action-secondary">
-                    <span>VIEW SOURCE</span>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <line x1="7" y1="17" x2="17" y2="7"></line>
-                      <polyline points="7 7 17 7 17 17"></polyline>
-                    </svg>
-                  </a>
-                ` : `
-                  <a href="${githubUrl}" target="_blank" rel="noopener noreferrer" class="btn-action-primary">
-                    <span>VIEW REPOSITORY</span>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <line x1="7" y1="17" x2="17" y2="7"></line>
-                      <polyline points="7 7 17 7 17 17"></polyline>
-                    </svg>
-                  </a>
-                `}
-              </div>
-            </article>
-          </div>
+            <div class="card-actions-row">
+              ${isLiveProfile ? `
+                <a href="${profileUrl}" target="_blank" rel="noopener noreferrer" class="btn-action-primary">
+                  <span>VISIT PROFILE</span>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <line x1="7" y1="17" x2="17" y2="7"></line>
+                    <polyline points="7 7 17 7 17 17"></polyline>
+                  </svg>
+                </a>
+                <a href="${githubUrl}" target="_blank" rel="noopener noreferrer" class="btn-action-secondary">
+                  <span>VIEW SOURCE</span>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <line x1="7" y1="17" x2="17" y2="7"></line>
+                    <polyline points="7 7 17 7 17 17"></polyline>
+                  </svg>
+                </a>
+              ` : `
+                <a href="${githubUrl}" target="_blank" rel="noopener noreferrer" class="btn-action-primary">
+                  <span>VIEW REPOSITORY</span>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <line x1="7" y1="17" x2="17" y2="7"></line>
+                    <polyline points="7 7 17 7 17 17"></polyline>
+                  </svg>
+                </a>
+              `}
+            </div>
+          </article>
         `;
       }).join("");
 
-      // Populate Quick Jump Navigation Pills
-      if (pillsList) {
+      if (ringPills) {
         const shortNames = ["CLIPPER", "HYPERDRAIN", "PULSAR AUDIO", "PULSERELEASE", "ESTATERADAR"];
-        pillsList.innerHTML = cfg.PROJECTS.map((proj, idx) => {
+        ringPills.innerHTML = cfg.PROJECTS.map((proj, idx) => {
           const num = String(idx + 1).padStart(2, "0");
           const name = shortNames[idx] || proj.title;
           return `
-            <button class="project-pill ${idx === 0 ? 'active' : ''}" data-index="${idx}" aria-label="Go to project ${num}">
+            <button class="ring-pill ${idx === 0 ? 'active' : ''}" data-index="${idx}" aria-label="Go to project ${num}">
               <span class="pill-num">${num}</span> ${name}
             </button>
           `;
         }).join("");
       }
 
-      const totalEl = document.getElementById("counter-total");
-      if (totalEl) totalEl.textContent = String(cfg.PROJECTS.length).padStart(2, "0");
+      if (counterTotal) {
+        counterTotal.textContent = String(cfg.PROJECTS.length).padStart(2, "0");
+      }
     }
 
-    // Experience Editorial Rows
+    // Work Experience Rows
     const experienceList = document.getElementById("experience-list");
     if (experienceList && Array.isArray(cfg.EXPERIENCE)) {
       experienceList.innerHTML = cfg.EXPERIENCE.map(exp => `
@@ -275,7 +287,7 @@
       `).join("");
     }
 
-    // Skills Columns
+    // Technical Skills Grid
     const skillsGrid = document.getElementById("skills-grid");
     if (skillsGrid && cfg.SKILLS && typeof cfg.SKILLS === "object") {
       skillsGrid.innerHTML = Object.entries(cfg.SKILLS).map(([groupTitle, items]) => `
@@ -286,6 +298,21 @@
           </ul>
         </div>
       `).join("");
+    }
+
+    // Footer Note
+    const footerNote = document.getElementById("footer-note");
+    if (footerNote && cfg.FOOTER_NOTE) footerNote.textContent = cfg.FOOTER_NOTE;
+
+    // Contact Action
+    const contactBtn = document.getElementById("contact-button");
+    if (contactBtn && cfg.CONTACT) {
+      if (cfg.CONTACT.type === "whatsapp") {
+        const cleanNumber = String(cfg.CONTACT.value).replace(/[^0-9]/g, "");
+        contactBtn.href = `https://wa.me/${cleanNumber}`;
+      } else {
+        contactBtn.href = `mailto:${cfg.CONTACT.value}`;
+      }
     }
 
     // Social Links
@@ -313,9 +340,11 @@
   }
 
   /* --------------------------------------------------------------------------
-     3. CANVAS SIZING & DPR RESOLUTION
+     4. CANVAS SIZING & DPR RESOLUTION
      -------------------------------------------------------------------------- */
   function resizeCanvas() {
+    updateWrapHeight();
+
     const isMobile = window.matchMedia("(max-aspect-ratio: 1/1)").matches;
     const dpr = Math.min(window.devicePixelRatio || 1, isMobile ? 1.5 : 2.0);
     const rect = canvas.getBoundingClientRect();
@@ -333,7 +362,7 @@
   }
 
   /* --------------------------------------------------------------------------
-     4. FRAME PRELOADER & PROCEDURAL FALLBACK
+     5. FRAME PRELOADER & PROCEDURAL FALLBACK
      -------------------------------------------------------------------------- */
   function getFrameUrl(index) {
     const isMobile = window.matchMedia("(max-aspect-ratio: 1/1)").matches;
@@ -347,7 +376,6 @@
       const img = new Image();
       let settled = false;
 
-      // Fail-safe timeout to prevent hanging on network 404s
       const timer = setTimeout(() => {
         if (!settled) {
           settled = true;
@@ -384,14 +412,12 @@
   async function preloadFrames() {
     const minHoldPromise = new Promise(resolve => setTimeout(resolve, 600));
 
-    // Step 1: Load initial priority frames (immediate scroll horizon)
     try {
       const firstImg = await loadImageWithRetry(getFrameUrl(0));
       frames[0] = firstImg;
       framesLoadedCount = 1;
       updatePreloader(30);
 
-      // Load initial buffer of first 8 frames in parallel
       const initialBuffer = Math.min(8, frameCount);
       const initialPromises = [];
       for (let i = 1; i < initialBuffer; i++) {
@@ -411,7 +437,6 @@
       enableProceduralFallback();
     }
 
-    // Step 2: Instant unlock — complete preloader and show site
     updatePreloader(100);
     await minHoldPromise;
     drawCurrentFrame(true);
@@ -420,7 +445,6 @@
     document.body.classList.remove("loading-locked");
     startRafLoop();
 
-    // Step 3: Stream the remaining frames progressively in the background
     const streamBatchSize = 12;
     for (let i = 8; i < frameCount; i += streamBatchSize) {
       const batch = [];
@@ -452,19 +476,16 @@
   }
 
   /* --------------------------------------------------------------------------
-     5. PROCEDURAL CANVAS RENDERER (Fallback Mode)
+     6. PROCEDURAL CANVAS RENDERER (Fallback Mode)
      -------------------------------------------------------------------------- */
   function renderProceduralScene(cw, ch, progress) {
-    // Pure black void
     ctx.fillStyle = "#000000";
     ctx.fillRect(0, 0, cw, ch);
 
-    // Drifting Fog layers
     fogOffset += 0.003;
     const centerX = cw * 0.5;
     const centerY = ch * 0.55;
 
-    // Low Ground Atmosphere
     const grad1 = ctx.createRadialGradient(
       centerX + Math.sin(fogOffset) * 60,
       ch * 0.82,
@@ -479,7 +500,6 @@
     ctx.fillStyle = grad1;
     ctx.fillRect(0, ch * 0.5, cw, ch * 0.5);
 
-    // Subtle Silhouette Form (1920s peaked silhouette placeholder)
     const silhouetteHeight = ch * 0.48;
     const silhouetteWidth = silhouetteHeight * 0.35;
     const headRadius = silhouetteWidth * 0.22;
@@ -487,12 +507,10 @@
 
     ctx.save();
     ctx.fillStyle = "#080808";
-    // Body / Overcoat
     ctx.beginPath();
     ctx.moveTo(centerX - silhouetteWidth * 0.45, figY + silhouetteHeight);
     ctx.lineTo(centerX - silhouetteWidth * 0.35, figY + headRadius * 2.8);
     ctx.lineTo(centerX - silhouetteWidth * 0.25, figY + headRadius * 1.5);
-    // Flat cap contour
     ctx.lineTo(centerX - headRadius * 1.25, figY + headRadius * 0.6);
     ctx.arc(centerX, figY, headRadius * 0.95, Math.PI, 0, false);
     ctx.lineTo(centerX + headRadius * 1.35, figY + headRadius * 0.7);
@@ -502,12 +520,10 @@
     ctx.closePath();
     ctx.fill();
 
-    // Subtle rim light along the shoulder and cap
     ctx.strokeStyle = "rgba(232, 163, 61, 0.18)";
     ctx.lineWidth = 1.5;
     ctx.stroke();
 
-    // Growing Ember at hand level, rising toward mouth as progress exceeds 0.75
     let emberX = centerX + silhouetteWidth * 0.22;
     let emberY = figY + silhouetteHeight * 0.62;
 
@@ -529,7 +545,6 @@
     ctx.arc(emberX, emberY, emberSize * 8, 0, Math.PI * 2);
     ctx.fill();
 
-    // Exhaled Smoke drifting after progress > 0.80
     if (progress > 0.80) {
       const smokeAlpha = Math.min((progress - 0.80) / 0.15, 0.25);
       const smokeGrad = ctx.createRadialGradient(
@@ -552,7 +567,7 @@
   }
 
   /* --------------------------------------------------------------------------
-     6. CANVAS FRAME DRAWING (Cover Fit & Centered)
+     7. CANVAS FRAME DRAWING (Cover Fit & Centered)
      -------------------------------------------------------------------------- */
   function drawCurrentFrame(force = false) {
     const targetIdx = Math.max(0, Math.min(Math.round(currentFrameFloat), frameCount - 1));
@@ -560,8 +575,11 @@
     const ch = canvas.height;
     if (cw === 0 || ch === 0) return;
 
+    const { heroScroll } = getStageMetrics();
+    const p = heroScroll > 0 ? Math.min(Math.max(smoothedS / heroScroll, 0), 1) : 0;
+
     if (isProceduralFallback) {
-      renderProceduralScene(cw, ch, targetProgress);
+      renderProceduralScene(cw, ch, p);
       lastDrawnFrame = targetIdx;
       return;
     }
@@ -595,13 +613,12 @@
       ctx.drawImage(img, dx, dy, dw, dh);
       lastDrawnFrame = targetIdx;
     } else {
-      // Fallback if individual frame not loaded yet
-      renderProceduralScene(cw, ch, targetProgress);
+      renderProceduralScene(cw, ch, p);
     }
   }
 
   /* --------------------------------------------------------------------------
-     7. PIECEWISE LINEAR FRAME MAPPING & SMOOTHING
+     8. PIECEWISE LINEAR FRAME MAPPING
      -------------------------------------------------------------------------- */
   function progressToFrame(p) {
     if (p <= frameMap[0][0]) return frameMap[0][1];
@@ -622,10 +639,9 @@
     return frameMap[0][1];
   }
 
-  let updateHorizontalProjects = null;
-  let targetTrackX = 0;
-  let currentTrackX = 0;
-
+  /* --------------------------------------------------------------------------
+     9. UNIFIED rAF LOOP & SCROLL CHOREOGRAPHY
+     -------------------------------------------------------------------------- */
   function startRafLoop() {
     if (isRafRunning) return;
     isRafRunning = true;
@@ -637,36 +653,50 @@
     const dt = Math.min(Math.max(now - lastRafTime, 1), 50);
     lastRafTime = now;
 
-    // Target frame from scroll progress
-    const targetFrame = progressToFrame(targetProgress);
+    const { heroScroll, transition, ringScroll, exit } = getStageMetrics();
 
-    // Smoothing factor: current += (target - current) * (1 - Math.pow(1 - 0.09, dt/16.67))
+    // Smoothed scroll: smoothed += (s - smoothed) * (1 - Math.pow(1 - 0.09, dt/16.67))
     const decay = 1 - Math.pow(1 - 0.09, dt / 16.67);
-    currentFrameFloat += (targetFrame - currentFrameFloat) * decay;
+    smoothedS += (targetS - smoothedS) * decay;
 
-    // Redraw frame
-    drawCurrentFrame(isProceduralFallback);
-
-    // Update horizontal projects track if initialized
-    let trackSettled = true;
-    if (typeof updateHorizontalProjects === "function") {
-      trackSettled = updateHorizontalProjects();
+    if (Math.abs(targetS - smoothedS) < 0.2) {
+      smoothedS = targetS;
     }
 
+    // Derived phases: fully scroll-linked, reversible, zero state flags
+    const p = heroScroll > 0 ? Math.min(Math.max(smoothedS / heroScroll, 0), 1) : 1;
+    const q = transition > 0 ? Math.min(Math.max((smoothedS - heroScroll) / transition, 0), 1) : 0;
+    const r = ringScroll > 0 ? Math.min(Math.max((smoothedS - heroScroll - transition) / ringScroll, 0), 1) : 0;
+    const x = exit > 0 ? Math.min(Math.max((smoothedS - heroScroll - transition - ringScroll) / exit, 0), 1) : 0;
+
+    // Phase (a): Hero video frames & narrative typography
+    currentFrameFloat = progressToFrame(p);
+    drawCurrentFrame(isProceduralFallback);
+    updateNarrativeBeats(p, q);
+
+    // Phase (b): Slow push-in on hero canvas (scale 1 to 1.35, origin 50% 38%, fade into darkness)
+    if (canvas) {
+      const heroScale = 1 + q * 0.35;
+      canvas.style.transformOrigin = "50% 38%";
+      canvas.style.transform = `scale(${heroScale.toFixed(4)})`;
+      canvas.style.opacity = Math.max(0, 1 - q * 1.15).toFixed(3);
+    }
+
+    // Phase (c): 3D Ring emergence, rotation, and exit
+    update3DRing(q, r, x);
+
     // Check if settled
-    const frameDiff = Math.abs(targetFrame - currentFrameFloat);
-    if (!isProceduralFallback && frameDiff < 0.001 && trackSettled) {
-      currentFrameFloat = targetFrame;
+    const isSettled = Math.abs(targetS - smoothedS) < 0.2;
+    if (!isProceduralFallback && isSettled) {
       isRafRunning = false;
       return;
     }
 
-    // Keep running if procedural (drifting fog) or animating toward target
     requestAnimationFrame(rafTick);
   }
 
   /* --------------------------------------------------------------------------
-     8. SCROLL CHOREOGRAPHY & BEAT TIMING
+     10. NARRATIVE BEATS TIMING & CREED FADE
      -------------------------------------------------------------------------- */
   const beats = [
     { el: document.getElementById("beat-0"), min: 0.00, max: 0.20 },
@@ -674,306 +704,179 @@
     { el: document.getElementById("beat-2"), min: 0.34, max: 0.45 },
     { el: document.getElementById("beat-3"), min: 0.47, max: 0.58 },
     { el: document.getElementById("beat-4"), min: 0.60, max: 0.72 },
-    { el: document.getElementById("beat-5"), min: 0.80, max: 1.00 } // Holds to end
+    { el: document.getElementById("beat-5"), min: 0.80, max: 1.00 }
   ];
 
-  function updateNarrativeBeats(p, scrollY, heroMaxScroll) {
-    const beat5 = document.getElementById("beat-5");
-
-    // When scrolling past heroMaxScroll into the rising dossier, smoothly dissolve beat 5 rapidly
-    if (typeof scrollY === "number" && typeof heroMaxScroll === "number" && scrollY > heroMaxScroll) {
-      const dissolveDist = window.innerHeight * 0.2;
-      const fadeRatio = Math.min((scrollY - heroMaxScroll) / dissolveDist, 1);
-      if (beat5) {
-        beat5.style.opacity = String(Math.max(0, 1 - fadeRatio).toFixed(3));
-        beat5.style.transform = `translateY(calc(-50% - ${fadeRatio * 30}px))`;
-        beat5.style.pointerEvents = "none";
-      }
-      for (let i = 0; i < beats.length - 1; i++) {
-        if (beats[i].el) beats[i].el.classList.remove("active");
-      }
-      return;
-    }
-
-    if (beat5) {
-      beat5.style.opacity = "";
-      beat5.style.transform = "";
-      beat5.style.pointerEvents = "";
-    }
-
-    for (let i = 0; i < beats.length; i++) {
+  function updateNarrativeBeats(p, q) {
+    for (let i = 0; i < beats.length - 1; i++) {
       const beat = beats[i];
       if (!beat.el) continue;
-      const isActive = p >= beat.min && p <= beat.max;
+      const isActive = (q === 0) && (p >= beat.min && p <= beat.max);
       beat.el.classList.toggle("active", isActive);
     }
-  }
 
-  function onScroll() {
-    const heroTop = heroEl.offsetTop;
-    const heroHeight = heroEl.offsetHeight;
-    const maxScroll = heroHeight - window.innerHeight;
-
-    if (maxScroll <= 0) return;
-
-    const scrollY = window.scrollY;
-    targetProgress = Math.min(Math.max((scrollY - heroTop) / maxScroll, 0), 1);
-
-    // Update narrative beats and fade out creed as dossier rises
-    updateNarrativeBeats(targetProgress, scrollY, maxScroll);
-
-    // Keep video canvas visible at all times — NEVER close or black out the video!
-    canvas.style.opacity = "1";
-
-    if (typeof updateHorizontalProjects === "function") {
-      updateHorizontalProjects();
+    // Beat 5 (The Creed): active from 0.80, dissolves with push-in (q) with NO translateY
+    const beat5 = document.getElementById("beat-5");
+    if (beat5) {
+      if (p >= 0.80) {
+        beat5.classList.add("active");
+        if (q > 0) {
+          const beat5Alpha = Math.max(0, 1 - q * 2.5);
+          beat5.style.opacity = beat5Alpha.toFixed(3);
+          beat5.style.pointerEvents = (beat5Alpha > 0.1) ? "auto" : "none";
+        } else {
+          beat5.style.opacity = "1";
+          beat5.style.pointerEvents = "auto";
+        }
+      } else {
+        beat5.classList.remove("active");
+        beat5.style.opacity = "0";
+        beat5.style.pointerEvents = "none";
+      }
     }
-
-    // Wake up rAF loop
-    startRafLoop();
   }
 
   /* --------------------------------------------------------------------------
-     8b. SINGLE-CARD SIDEWAYS SLIDE TRACK & CONTROLS
+     11. 3D RING EMERGENCE, ROTATION & NAVIGATION
      -------------------------------------------------------------------------- */
-  let currentSlideFloat = 0;
-  let targetSlideFloat = 0;
-
-  function initHorizontalProjects() {
-    const viewport = document.getElementById("projects-viewport");
-    const track = document.getElementById("projects-track");
-    const dossierWrapper = document.getElementById("dossier-wrapper");
+  function update3DRing(q, r, x) {
+    const ringLayer = document.getElementById("ring-layer");
+    const projectRing = document.getElementById("project-ring");
     const counterCurrent = document.getElementById("counter-current");
-    const prevBtn = document.getElementById("projects-prev-btn");
-    const nextBtn = document.getElementById("projects-next-btn");
-    const pills = Array.from(document.querySelectorAll(".project-pill"));
+    const pills = Array.from(document.querySelectorAll(".ring-pill"));
+    const cards = Array.from(document.querySelectorAll(".ring-card"));
 
-    if (!viewport || !track || !dossierWrapper || !heroEl) return;
+    if (!ringLayer || !projectRing || !cards.length) return;
 
-    function calculateProgress() {
-      const dossierStart = heroEl.offsetHeight;
-      const dossierTrackHeight = dossierWrapper.offsetHeight - window.innerHeight;
-      const scrollY = window.scrollY;
+    // Ring layer opacity & interactivity
+    const ringOpacity = (q > 0) ? Math.min(1, q * 1.35) * Math.max(0, 1 - x * 1.35) : 0;
+    ringLayer.style.opacity = ringOpacity.toFixed(3);
+    const isInteractive = (q >= 0.75 && x < 0.25);
+    ringLayer.style.pointerEvents = isInteractive ? "auto" : "none";
 
-      if (scrollY <= dossierStart) return 0;
-      if (dossierTrackHeight <= 0) return 0;
-
-      const over = scrollY - dossierStart;
-      return Math.min(Math.max(over / dossierTrackHeight, 0), 1);
+    if (ringOpacity <= 0.001) {
+      return;
     }
 
-    updateHorizontalProjects = function() {
-      const slides = Array.from(track.querySelectorAll(".card-slide"));
-      if (!slides.length) return true;
+    // Cylinder radius
+    const isMobile = window.matchMedia("(max-aspect-ratio: 1/1)").matches;
+    const radius = isMobile
+      ? Math.round(Math.min(window.innerWidth * 0.52, 380))
+      : Math.round(Math.min(Math.max(window.innerWidth * 0.42, 380), 520));
 
-      const progress = calculateProgress();
-      targetSlideFloat = progress * (slides.length - 1);
+    // Depth emergence (-600px -> 0px) and forward exit push (0px -> +300px)
+    const depthZ = (1 - q) * -600 + x * 300;
 
-      // Smooth lerp
-      const diff = targetSlideFloat - currentSlideFloat;
-      currentSlideFloat += diff * 0.16;
+    // Rotation angle
+    const numCards = cards.length;
+    const anglePerCard = 360 / numCards; // 72 deg for 5 cards
+    const totalSpan = (numCards - 1) * anglePerCard; // 288 deg
+    const currentAngle = r * totalSpan;
 
-      if (Math.abs(diff) < 0.005) {
-        currentSlideFloat = targetSlideFloat;
+    projectRing.style.transform = `translateZ(${(-radius + depthZ).toFixed(1)}px) rotateY(${-currentAngle.toFixed(2)}deg)`;
+
+    // Active card calculation
+    const activeIdx = Math.min(Math.max(Math.round(r * (numCards - 1)), 0), numCards - 1);
+
+    cards.forEach((card, i) => {
+      const cardAngle = i * anglePerCard;
+      card.style.transform = `rotateY(${cardAngle}deg) translateZ(${radius}px)`;
+
+      // Angular distance from active camera view
+      let diff = (cardAngle - currentAngle) % 360;
+      if (diff > 180) diff -= 360;
+      if (diff < -180) diff += 360;
+
+      const absDiff = Math.abs(diff);
+      const cosVal = Math.max(0, Math.cos(diff * Math.PI / 180));
+
+      if (absDiff < anglePerCard * 0.5) {
+        card.classList.add("active-card");
+        card.style.opacity = "1";
+        card.style.pointerEvents = isInteractive ? "auto" : "none";
+      } else {
+        card.classList.remove("active-card");
+        card.style.opacity = Math.max(0.08, cosVal * 0.75).toFixed(3);
+        card.style.pointerEvents = "none";
       }
+    });
 
-      // Slide sideways (100vw per card slide for pure single-card focus)
-      track.style.transform = `translate3d(-${(currentSlideFloat * 100).toFixed(2)}vw, 0, 0)`;
-
-      // Ensure single-card focus by fading out non-active adjacent cards
-      slides.forEach((slide, idx) => {
-        const dist = Math.abs(currentSlideFloat - idx);
-        const slideOpacity = Math.max(0, Math.min(1, 1 - dist * 1.5));
-        slide.style.opacity = slideOpacity.toFixed(3);
-        const slideScale = Math.max(0.95, 1 - dist * 0.05);
-        slide.style.transform = `scale(${slideScale.toFixed(3)})`;
-      });
-
-      // Active slide index & UI updates
-      const activeIdx = Math.min(Math.max(Math.round(currentSlideFloat), 0), slides.length - 1);
-
-      if (counterCurrent) {
-        counterCurrent.textContent = String(activeIdx + 1).padStart(2, "0");
-      }
-
-      pills.forEach((p, idx) => {
-        p.classList.toggle("active", idx === activeIdx);
-      });
-
-      return Math.abs(diff) < 0.005;
-    };
-
-    function navigateToCard(targetIdx) {
-      const slides = Array.from(track.querySelectorAll(".card-slide"));
-      if (!slides.length) return;
-
-      const clamped = Math.min(Math.max(targetIdx, 0), slides.length - 1);
-      const dossierStart = heroEl.offsetHeight;
-      const dossierTrackHeight = dossierWrapper.offsetHeight - window.innerHeight;
-
-      const targetScrollY = dossierStart + (clamped / (slides.length - 1)) * dossierTrackHeight + 2;
-      window.scrollTo({ top: targetScrollY, behavior: "smooth" });
+    if (counterCurrent) {
+      counterCurrent.textContent = String(activeIdx + 1).padStart(2, "0");
     }
+
+    pills.forEach((p, idx) => {
+      p.classList.toggle("active", idx === activeIdx);
+    });
+  }
+
+  function navigateToCard(targetIdx) {
+    if (!pinWrap) return;
+    const cards = Array.from(document.querySelectorAll(".ring-card"));
+    if (!cards.length) return;
+
+    const numCards = cards.length;
+    const clamped = Math.min(Math.max(targetIdx, 0), numCards - 1);
+
+    const rect = pinWrap.getBoundingClientRect();
+    const wrapTop = window.scrollY + rect.top;
+    const { heroScroll, transition, ringScroll } = getStageMetrics();
+
+    const targetScroll = wrapTop + heroScroll + transition + (clamped / (numCards - 1)) * ringScroll + 2;
+    window.scrollTo({ top: targetScroll, behavior: "smooth" });
+  }
+
+  function initRingControls() {
+    const prevBtn = document.getElementById("ring-prev-btn");
+    const nextBtn = document.getElementById("ring-next-btn");
+    const pills = Array.from(document.querySelectorAll(".ring-pill"));
 
     if (prevBtn) {
       prevBtn.addEventListener("click", () => {
-        const slides = Array.from(track.querySelectorAll(".card-slide"));
-        const currentIdx = Math.round(currentSlideFloat);
+        const { heroScroll, transition, ringScroll } = getStageMetrics();
+        const numCards = (Array.isArray(cfg.PROJECTS) && cfg.PROJECTS.length > 0) ? cfg.PROJECTS.length : 5;
+        const r = ringScroll > 0 ? Math.min(Math.max((smoothedS - heroScroll - transition) / ringScroll, 0), 1) : 0;
+        const currentIdx = Math.round(r * (numCards - 1));
         navigateToCard(currentIdx - 1);
       });
     }
 
     if (nextBtn) {
       nextBtn.addEventListener("click", () => {
-        const slides = Array.from(track.querySelectorAll(".card-slide"));
-        const currentIdx = Math.round(currentSlideFloat);
+        const { heroScroll, transition, ringScroll } = getStageMetrics();
+        const numCards = (Array.isArray(cfg.PROJECTS) && cfg.PROJECTS.length > 0) ? cfg.PROJECTS.length : 5;
+        const r = ringScroll > 0 ? Math.min(Math.max((smoothedS - heroScroll - transition) / ringScroll, 0), 1) : 0;
+        const currentIdx = Math.round(r * (numCards - 1));
         navigateToCard(currentIdx + 1);
       });
     }
 
-    // Quick Jump Navigation via Project Pills
     pills.forEach(pill => {
       pill.addEventListener("click", () => {
         const idx = parseInt(pill.getAttribute("data-index") || "0", 10);
         navigateToCard(idx);
       });
     });
-
-    // Mouse wheel inside viewport drives horizontal scrolling
-    viewport.addEventListener("wheel", (e) => {
-      const delta = Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
-      if (delta !== 0) {
-        window.scrollBy({ top: delta, behavior: "auto" });
-      }
-    }, { passive: true });
-
-    // Subtle magnetic centering when user stops scrolling in the dossier section
-    let settleTimeout = null;
-    window.addEventListener("scroll", () => {
-      clearTimeout(settleTimeout);
-      settleTimeout = setTimeout(() => {
-        const dossierStart = heroEl.offsetHeight;
-        const dossierTrackHeight = dossierWrapper.offsetHeight - window.innerHeight;
-        const scrollY = window.scrollY;
-
-        if (scrollY > dossierStart + 20 && scrollY < dossierStart + dossierTrackHeight - 20) {
-          const nearestIdx = Math.round(currentSlideFloat);
-          if (Math.abs(currentSlideFloat - nearestIdx) > 0.04) {
-            navigateToCard(nearestIdx);
-          }
-        }
-      }, 240);
-    }, { passive: true });
   }
 
   /* --------------------------------------------------------------------------
-     9. ACCESSIBLE DOSSIER TABS
+     12. NATIVE SCROLL LISTENER (No scroll-jacking)
      -------------------------------------------------------------------------- */
-  function initTabs() {
-    const tabButtons = Array.from(document.querySelectorAll(".tab-button"));
-    const tabPanels = Array.from(document.querySelectorAll(".tab-panel"));
-    if (!tabButtons.length || !tabPanels.length) return;
+  function onScroll() {
+    if (!pinWrap) return;
 
-    function activateTab(targetBtn, smoothScroll = false) {
-      if (!targetBtn) return;
-      const targetId = targetBtn.getAttribute("aria-controls");
-      const targetPanel = document.getElementById(targetId);
-      if (!targetPanel) return;
+    const rect = pinWrap.getBoundingClientRect();
+    const wrapTop = window.scrollY + rect.top;
+    const { wrapHeight, vh } = getStageMetrics();
+    const maxS = Math.max(0, wrapHeight - vh);
 
-      // Update ARIA and states
-      tabButtons.forEach(btn => {
-        const isSelected = btn === targetBtn;
-        btn.setAttribute("aria-selected", isSelected ? "true" : "false");
-        btn.setAttribute("tabindex", isSelected ? "0" : "-1");
-      });
+    targetS = Math.min(Math.max(window.scrollY - wrapTop, 0), maxS);
 
-      // Crossfade panels
-      tabPanels.forEach(panel => {
-        panel.classList.remove("active");
-      });
-      targetPanel.classList.add("active");
-
-      // Position sliding indicator
-      if (tabIndicator) {
-        tabIndicator.style.transform = `translateX(${targetBtn.offsetLeft}px)`;
-        tabIndicator.style.width = `${targetBtn.offsetWidth}px`;
-      }
-
-      // If switching back to projects, update horizontal position
-      if (targetId === "panel-projects" && typeof updateHorizontalProjects === "function") {
-        updateHorizontalProjects();
-      }
-
-      // Deep link without jumping scroll
-      const hash = targetId.replace("panel-", "");
-      if (location.hash !== `#${hash}`) {
-        history.replaceState(null, "", `#${hash}`);
-      }
-
-      if (smoothScroll) {
-        const dossierWrapper = document.getElementById("dossier-wrapper");
-        if (dossierWrapper) {
-          dossierWrapper.scrollIntoView({ behavior: "smooth" });
-        }
-      }
-    }
-
-    // Click handler
-    tabButtons.forEach(btn => {
-      btn.addEventListener("click", () => activateTab(btn));
-    });
-
-    // Keyboard navigation (Left / Right / Home / End)
-    tabButtons.forEach((btn, idx) => {
-      btn.addEventListener("keydown", (e) => {
-        let newIdx = idx;
-        if (e.key === "ArrowRight") {
-          newIdx = (idx + 1) % tabButtons.length;
-        } else if (e.key === "ArrowLeft") {
-          newIdx = (idx - 1 + tabButtons.length) % tabButtons.length;
-        } else if (e.key === "Home") {
-          newIdx = 0;
-        } else if (e.key === "End") {
-          newIdx = tabButtons.length - 1;
-        } else {
-          return;
-        }
-        e.preventDefault();
-        tabButtons[newIdx].focus();
-        activateTab(tabButtons[newIdx]);
-      });
-    });
-
-    // Handle deep links from URL hash
-    function checkHash() {
-      const rawHash = (location.hash || "").replace("#", "").toLowerCase();
-      if (["projects", "experience", "skills"].includes(rawHash)) {
-        const targetBtn = document.getElementById(`tab-${rawHash}`);
-        if (targetBtn) activateTab(targetBtn, false);
-      } else {
-        activateTab(tabButtons[0], false);
-      }
-    }
-
-    window.addEventListener("hashchange", checkHash);
-    checkHash();
-
-    // Re-adjust height on window resize
-    window.addEventListener("resize", () => {
-      const activePanel = document.querySelector(".tab-panel.active");
-      const activeBtn = document.querySelector('.tab-button[aria-selected="true"]');
-      if (activePanel && panelsContainer) {
-        panelsContainer.style.height = `${activePanel.scrollHeight}px`;
-      }
-      if (activeBtn && tabIndicator) {
-        tabIndicator.style.transform = `translateX(${activeBtn.offsetLeft}px)`;
-        tabIndicator.style.width = `${activeBtn.offsetWidth}px`;
-      }
-    });
+    startRafLoop();
   }
 
   /* --------------------------------------------------------------------------
-     10. NOIR CIPHER TEXT SCRAMBLE
+     13. NOIR CIPHER TEXT SCRAMBLE
      -------------------------------------------------------------------------- */
   function initTextScramble() {
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_//--++**";
@@ -989,7 +892,7 @@
 
       const length = original.length;
       let frame = 0;
-      const totalFrames = 8; // ~200ms total
+      const totalFrames = 8;
 
       const timer = setInterval(() => {
         frame++;
@@ -1018,7 +921,7 @@
       }, 25);
     }
 
-    const scrambleSelector = ".hero-role, .role-primary, .role-secondary, .badge-text, .quote-kicker, .scroll-cue-text, .final-lead, .dossier-eyebrow, .tab-button, .project-index, .project-category-badge, .experience-period, .experience-org, .skill-group-title, .footer-note, .btn-project-primary span";
+    const scrambleSelector = ".hero-role, .role-primary, .role-secondary, .quote-kicker, .scroll-cue-text, .final-lead, .eyebrow-main, .card-kicker, .experience-period, .experience-org, .skill-group-title, .footer-note, .btn-action-primary span, .btn-action-secondary span, .section-kicker";
 
     document.addEventListener("mouseenter", (e) => {
       const target = e.target;
@@ -1029,7 +932,7 @@
   }
 
   /* --------------------------------------------------------------------------
-     11. AMBIENT NOIR CURSOR FOLLOWER & FONT FOCUS AURA
+     14. AMBIENT NOIR CURSOR FOLLOWER & FONT FOCUS AURA
      -------------------------------------------------------------------------- */
   function initAuraCursor() {
     if (window.matchMedia("(pointer: coarse)").matches) return;
@@ -1082,14 +985,14 @@
       const target = e.target;
       if (!target) return;
 
-      const actionEl = target.closest("a, button, .tab-button, .contact-action, .social-link");
+      const actionEl = target.closest("a, button, .contact-action, .social-link, .btn-action-primary, .btn-action-secondary, .ring-pill, .ring-arrow-btn");
       if (actionEl) {
         cursorWrap.classList.add("hovering-action");
         cursorWrap.classList.remove("hovering-text");
         return;
       }
 
-      const textEl = target.closest("h1, h2, h3, p, span, li, .hero-name, .hero-role, .beat-quote, .final-title, .project-tech, .experience-org, .skill-item");
+      const textEl = target.closest("h1, h2, h3, p, span, li, .hero-name, .hero-role, .beat-quote, .final-title, .experience-org, .skill-item");
       if (textEl) {
         cursorWrap.classList.add("hovering-text");
         cursorWrap.classList.remove("hovering-action");
@@ -1101,42 +1004,41 @@
   }
 
   /* --------------------------------------------------------------------------
-     12. AMBIENT HERO LANTERN / MATCH LIGHT TRACKER
+     15. AMBIENT HERO LANTERN / MATCH LIGHT TRACKER
      -------------------------------------------------------------------------- */
   function initHeroLantern() {
-    const heroSticky = document.querySelector(".hero-sticky");
-    if (!heroSticky || window.matchMedia("(pointer: coarse)").matches) return;
+    const pinStage = document.getElementById("pin");
+    if (!pinStage || window.matchMedia("(pointer: coarse)").matches) return;
 
     let ticking = false;
-    heroSticky.addEventListener("mousemove", (e) => {
+    pinStage.addEventListener("mousemove", (e) => {
       if (!ticking) {
         requestAnimationFrame(() => {
-          const rect = heroSticky.getBoundingClientRect();
+          const rect = pinStage.getBoundingClientRect();
           const x = e.clientX - rect.left;
           const y = e.clientY - rect.top;
-          heroSticky.style.setProperty("--mouse-x", `${x}px`);
-          heroSticky.style.setProperty("--mouse-y", `${y}px`);
-          heroSticky.classList.add("mouse-active");
+          pinStage.style.setProperty("--mouse-x", `${x}px`);
+          pinStage.style.setProperty("--mouse-y", `${y}px`);
+          pinStage.classList.add("mouse-active");
           ticking = false;
         });
         ticking = true;
       }
     }, { passive: true });
 
-    heroSticky.addEventListener("mouseleave", () => {
-      heroSticky.classList.remove("mouse-active");
+    pinStage.addEventListener("mouseleave", () => {
+      pinStage.classList.remove("mouse-active");
     });
   }
 
   /* --------------------------------------------------------------------------
-     13. INITIALIZATION
+     16. INITIALIZATION
      -------------------------------------------------------------------------- */
   function init() {
     initFilmGrain();
     hydrateContent();
     resizeCanvas();
-    initTabs();
-    initHorizontalProjects();
+    initRingControls();
     initTextScramble();
     initAuraCursor();
     initHeroLantern();
@@ -1144,15 +1046,11 @@
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", () => {
       resizeCanvas();
-      if (typeof updateHorizontalProjects === "function") {
-        updateHorizontalProjects();
-      }
+      onScroll();
     }, { passive: true });
     window.addEventListener("orientationchange", () => {
       resizeCanvas();
-      if (typeof updateHorizontalProjects === "function") {
-        updateHorizontalProjects();
-      }
+      onScroll();
     }, { passive: true });
 
     onScroll();

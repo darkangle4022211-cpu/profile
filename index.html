@@ -27,7 +27,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 
   <!-- Stylesheet -->
-  <link rel="stylesheet" href="css/style.css?v=13">
+  <link rel="stylesheet" href="css/style.css?v=15">
 </head>
 <body class="loading-locked">
 
@@ -57,134 +57,136 @@
     </div>
   </noscript>
 
-  <!-- ACT 1: HERO SCENE (650vh) -->
-  <section id="hero" aria-label="Cinematic Sequence">
-    <div class="hero-sticky">
-      <!-- Full-bleed frame canvas -->
-      <canvas id="hero-canvas" aria-label="Cinematic character sequence"></canvas>
-      
-      <!-- Radial vignette to blend video edges into black -->
-      <div class="hero-vignette" aria-hidden="true"></div>
+  <!-- PINNED STAGE: HERO VIDEO + SLOW PUSH-IN + 3D PROJECTS RING -->
+  <div id="pin-wrap" class="pin-wrap">
+    <div id="pin" class="pin-stage">
+      <!-- Layer (a): Hero Scene (Canvas, Vignette, Lantern, Narrative Typography) -->
+      <div id="hero-layer" class="hero-layer" aria-label="Cinematic Sequence">
+        <canvas id="hero-canvas" aria-label="Cinematic character sequence"></canvas>
+        <div class="hero-vignette" aria-hidden="true"></div>
+        <div class="hero-lantern" aria-hidden="true"></div>
 
-      <!-- Ambient match / lantern flare tracking cursor -->
-      <div class="hero-lantern" aria-hidden="true"></div>
-
-      <!-- Scroll-Linked Narrative Typography Overlay -->
-      <div class="hero-overlay" aria-hidden="true">
-        <!-- Beat 0: Intro (0.00 - 0.20) -->
-        <div id="beat-0" class="beat beat-intro active">
-          <h1 id="hero-name" class="hero-name">HAMZA</h1>
-          <div id="hero-role" class="hero-role">CREATIVE TECHNOLOGIST &amp; SYSTEM ARCHITECT</div>
-          <div class="scroll-cue">
-            <div class="scroll-cue-track">
-              <div class="scroll-cue-dot"></div>
+        <!-- Scroll-Linked Narrative Typography Overlay -->
+        <div class="hero-overlay" aria-hidden="true">
+          <!-- Beat 0: Intro (0.00 - 0.20) -->
+          <div id="beat-0" class="beat beat-intro active">
+            <h1 id="hero-name" class="hero-name">HAMZA</h1>
+            <div id="hero-role" class="hero-role">CREATIVE TECHNOLOGIST &amp; SYSTEM ARCHITECT</div>
+            <div class="scroll-cue">
+              <div class="scroll-cue-track">
+                <div class="scroll-cue-dot"></div>
+              </div>
+              <span class="scroll-cue-text">Scroll to Begin</span>
             </div>
-            <span class="scroll-cue-text">Scroll to Begin</span>
+          </div>
+
+          <!-- Beat 1: Quote 1 (0.21 - 0.32) -->
+          <div id="beat-1" class="beat beat-quote beat-quote-1">
+            <div id="quote-kicker-1" class="quote-kicker">// ACT I — 01 &bull; THE DISCIPLINE</div>
+            <p id="quote-1" class="quote-text">Quiet hands build <span class="quote-gold">loud things.</span></p>
+          </div>
+
+          <!-- Beat 2: Quote 2 (0.34 - 0.45) -->
+          <div id="beat-2" class="beat beat-quote beat-quote-2">
+            <div id="quote-kicker-2" class="quote-kicker">// ACT I — 02 &bull; THE ARCHITECTURE</div>
+            <p id="quote-2" class="quote-text">Details are where <span class="quote-gold">empires are decided.</span></p>
+          </div>
+
+          <!-- Beat 3: Quote 3 (0.47 - 0.58) -->
+          <div id="beat-3" class="beat beat-quote beat-quote-3">
+            <div id="quote-kicker-3" class="quote-kicker">// ACT I — 03 &bull; THE VELOCITY</div>
+            <p id="quote-3" class="quote-text">I don't chase deadlines. <span class="quote-gold">I outwalk them.</span></p>
+          </div>
+
+          <!-- Beat 4: Quote 4 (0.60 - 0.72) -->
+          <div id="beat-4" class="beat beat-quote beat-quote-4">
+            <div id="quote-kicker-4" class="quote-kicker">// ACT I — 04 &bull; THE STANDARD</div>
+            <p id="quote-4" class="quote-text">Measured twice. <span class="quote-gold">Shipped once.</span></p>
+          </div>
+
+          <!-- Beat 5: Final Punchline (0.80 - 1.00) -->
+          <div id="beat-5" class="beat beat-final">
+            <div class="final-lead">// THE CREED</div>
+            <div id="final-line" class="final-title">By order of <span class="creed-gold">the craft.</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Layer (b): 3D Projects Ring Layer (Above canvas) -->
+      <section id="ring-layer" class="ring-layer" aria-label="Featured Projects 3D Archive">
+        <!-- Header & Counter -->
+        <header class="ring-header">
+          <div class="ring-brand-col">
+            <div class="ring-eyebrow"><span class="eyebrow-main">// SELECTED WORKS</span><span class="eyebrow-sub"> &bull; 3D ARCHIVE</span></div>
+            <div id="ring-counter" class="ring-counter" aria-live="polite">
+              <span id="counter-current" class="counter-num">01</span>
+              <span class="counter-sep">/</span>
+              <span id="counter-total" class="counter-total">05</span>
+            </div>
+          </div>
+          <div class="ring-status-label">SPATIAL INDEX // 3D ROTATION</div>
+        </header>
+
+        <!-- 3D Perspective Stage -->
+        <div class="ring-perspective-wrap">
+          <div id="project-ring" class="project-ring">
+            <!-- Dynamically populated 3D project cards from config.js -->
           </div>
         </div>
 
-        <!-- Beat 1: Quote 1 (0.21 - 0.32) -->
-        <div id="beat-1" class="beat beat-quote beat-quote-1">
-          <div id="quote-kicker-1" class="quote-kicker">// ACT I — 01 &bull; THE DISCIPLINE</div>
-          <p id="quote-1" class="quote-text">Quiet hands build <span class="quote-gold">loud things.</span></p>
+        <!-- Controls: Jump Row Pills & Arrows -->
+        <div class="ring-controls">
+          <div id="ring-pills" class="ring-pills">
+            <!-- Dynamically populated quick-jump pills -->
+          </div>
+          <div class="ring-arrows">
+            <button id="ring-prev-btn" class="ring-arrow-btn" aria-label="Previous project" title="Previous Project">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="15 18 9 12 15 6"></polyline>
+              </svg>
+            </button>
+            <button id="ring-next-btn" class="ring-arrow-btn" aria-label="Next project" title="Next Project">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="9 18 15 12 9 6"></polyline>
+              </svg>
+            </button>
+          </div>
         </div>
-
-        <!-- Beat 2: Quote 2 (0.34 - 0.45) -->
-        <div id="beat-2" class="beat beat-quote beat-quote-2">
-          <div id="quote-kicker-2" class="quote-kicker">// ACT I — 02 &bull; THE ARCHITECTURE</div>
-          <p id="quote-2" class="quote-text">Details are where <span class="quote-gold">empires are decided.</span></p>
-        </div>
-
-        <!-- Beat 3: Quote 3 (0.47 - 0.58) -->
-        <div id="beat-3" class="beat beat-quote beat-quote-3">
-          <div id="quote-kicker-3" class="quote-kicker">// ACT I — 03 &bull; THE VELOCITY</div>
-          <p id="quote-3" class="quote-text">I don't chase deadlines. <span class="quote-gold">I outwalk them.</span></p>
-        </div>
-
-        <!-- Beat 4: Quote 4 (0.60 - 0.72) -->
-        <div id="beat-4" class="beat beat-quote beat-quote-4">
-          <div id="quote-kicker-4" class="quote-kicker">// ACT I — 04 &bull; THE STANDARD</div>
-          <p id="quote-4" class="quote-text">Measured twice. <span class="quote-gold">Shipped once.</span></p>
-        </div>
-
-        <!-- Beat 5: Final Punchline (0.80 - 1.00) -->
-        <div id="beat-5" class="beat beat-final">
-          <div class="final-lead">// THE CREED</div>
-          <div id="final-line" class="final-title">By order of <span class="creed-gold">the craft.</span></div>
-        </div>
-      </div>
+      </section>
     </div>
-  </section>
+  </div>
 
-  <!-- ACT 2: THE DOSSIER -->
-  <main id="dossier-wrapper" class="dossier-wrapper">
-    <div class="dossier-sticky-stage">
-      <!-- Dossier Header & Tablist -->
-      <header class="dossier-header">
-        <div class="dossier-brand-col">
-          <div class="dossier-eyebrow">// THE DOSSIER</div>
-          <div id="projects-counter" class="dossier-counter" aria-live="polite">
-            <span id="counter-current" class="counter-num">01</span>
-            <span class="counter-sep">/</span>
-            <span id="counter-total" class="counter-total">05</span>
-          </div>
+  <!-- PLAIN SECTIONS DIRECTLY ON DARK VOID (NO BIG GLASS PANEL) -->
+  <main id="dossier-flow" class="dossier-flow">
+    <!-- Work Experience Section -->
+    <section id="experience" class="void-section" aria-label="Work Experience">
+      <div class="section-shell">
+        <header class="section-lead">
+          <div class="section-kicker">// TRACK RECORD</div>
+          <h2 class="section-heading">WORK EXPERIENCE</h2>
+        </header>
+        <div id="experience-list" class="experience-flow">
+          <!-- Dynamically populated from config.js -->
         </div>
-
-        <div class="tab-list" role="tablist" aria-label="Dossier Sections">
-          <button id="tab-projects" class="tab-button active" role="tab" aria-selected="true" aria-controls="panel-projects" tabindex="0">Projects</button>
-          <button id="tab-experience" class="tab-button" role="tab" aria-selected="false" aria-controls="panel-experience" tabindex="-1">Experience</button>
-          <button id="tab-skills" class="tab-button" role="tab" aria-selected="false" aria-controls="panel-skills" tabindex="-1">Skills</button>
-          <div id="tab-indicator" class="tab-indicator"></div>
-        </div>
-      </header>
-
-      <!-- Tab Panels Container -->
-      <div id="panels-container" class="panels-container">
-        <!-- Projects Panel: Shows ONE Card at a time, moving sideways on scroll -->
-        <section id="panel-projects" class="tab-panel active" role="tabpanel" aria-labelledby="tab-projects" tabindex="0">
-          <div id="projects-viewport" class="projects-single-viewport">
-            <div id="projects-track" class="projects-single-track">
-              <!-- Dynamically injected from AURA_CONFIG.PROJECTS (1 card per slide) -->
-            </div>
-          </div>
-
-          <!-- Project Navigation Bar & Indicator Pills -->
-          <div class="projects-controls-row">
-            <div id="projects-pills-list" class="projects-pills-list">
-              <!-- Generated 01, 02, 03, 04, 05 quick-jump pills -->
-            </div>
-            <div class="projects-nav-arrows">
-              <button id="projects-prev-btn" class="nav-arrow-btn" aria-label="Previous project" title="Previous Project">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="15 18 9 12 15 6"></polyline>
-                </svg>
-              </button>
-              <button id="projects-next-btn" class="nav-arrow-btn" aria-label="Next project" title="Next Project">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="9 18 15 12 9 6"></polyline>
-                </svg>
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <!-- Experience Panel -->
-        <section id="panel-experience" class="tab-panel" role="tabpanel" aria-labelledby="tab-experience" tabindex="0">
-          <div id="experience-list" class="experience-list">
-            <!-- Dynamically injected from AURA_CONFIG.EXPERIENCE -->
-          </div>
-        </section>
-
-        <!-- Skills Panel -->
-        <section id="panel-skills" class="tab-panel" role="tabpanel" aria-labelledby="tab-skills" tabindex="0">
-          <div id="skills-grid" class="skills-grid">
-            <!-- Dynamically injected from AURA_CONFIG.SKILLS -->
-          </div>
-        </section>
       </div>
+    </section>
 
-      <!-- Dossier Footer -->
-      <footer class="dossier-footer">
+    <!-- Technical Skills Section -->
+    <section id="skills" class="void-section" aria-label="Technical Skills">
+      <div class="section-shell">
+        <header class="section-lead">
+          <div class="section-kicker">// ARSENAL</div>
+          <h2 class="section-heading">TECHNICAL ARCHITECTURE</h2>
+        </header>
+        <div id="skills-grid" class="skills-flow">
+          <!-- Dynamically populated from config.js -->
+        </div>
+      </div>
+    </section>
+
+    <!-- Plain Dark Void Footer -->
+    <footer id="dossier-footer" class="void-footer">
+      <div class="footer-shell">
         <a id="contact-button" href="mailto:hamza.zafar4022211@gmail.com" class="contact-action">
           Get in Touch
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -194,12 +196,12 @@
         </a>
 
         <ul id="socials-list" class="socials-list" aria-label="Social Profiles">
-          <!-- Dynamically injected from AURA_CONFIG.SOCIALS -->
+          <!-- Dynamically populated from config.js -->
         </ul>
 
         <p id="footer-note" class="footer-note">Crafted by Muhammad Hamza Zafar // Founder Axovion.io</p>
-      </footer>
-    </div>
+      </div>
+    </footer>
   </main>
 
   <!-- Ambient Noir Cursor Follower -->
@@ -209,10 +211,10 @@
   </div>
 
   <!-- Optional frames manifest written by tools/make_frames script -->
-  <script src="frames/manifest.js?v=13" onerror="this.onerror=null;"></script>
+  <script src="frames/manifest.js?v=15" onerror="this.onerror=null;"></script>
   <!-- Personal Configuration & Content -->
-  <script src="js/config.js?v=13"></script>
+  <script src="js/config.js?v=15"></script>
   <!-- Main Application Logic -->
-  <script src="js/main.js?v=13"></script>
+  <script src="js/main.js?v=15"></script>
 </body>
 </html>

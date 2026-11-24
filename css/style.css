@@ -1221,9 +1221,11 @@ body.loading-locked {
 
 /* Void Footer */
 .void-footer {
-  padding: clamp(3rem, 6vh, 5rem) clamp(1.5rem, 5vw, 4rem);
+  padding: clamp(2rem, 4vh, 3rem) clamp(1.5rem, 5vw, 4rem);
   border-top: 1px solid rgba(255, 255, 255, 0.06);
-  background: #020202;
+  background: #000000;
+  position: relative;
+  z-index: 25;
 }
 
 .footer-shell {
@@ -1235,6 +1237,246 @@ body.loading-locked {
   align-items: center;
   flex-wrap: wrap;
   gap: 1.5rem;
+}
+
+.footer-shell-credit {
+  justify-content: center;
+  text-align: center;
+}
+
+/* --- ACT 3: CLOSING CREDITS SEQUENCE --- */
+.credits-section {
+  position: relative;
+  width: 100%;
+  height: 550vh;
+  background: #000000;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.credits-stage {
+  position: sticky;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100vh;
+  height: 100svh;
+  overflow: hidden;
+  background: #000000;
+}
+
+.credits-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 70% 42% at 50% 100%,
+    rgba(232, 163, 61, 0.055) 0%,
+    rgba(232, 163, 61, 0.02) 45%,
+    transparent 75%
+  );
+}
+
+.credits-mask-wrap {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  mask-image: linear-gradient(to top, #000 55%, transparent);
+  -webkit-mask-image: linear-gradient(to top, #000 55%, transparent);
+  pointer-events: none;
+}
+
+.credits-perspective {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  perspective: 900px;
+  perspective-origin: 50% 30%;
+  pointer-events: none;
+}
+
+.credits-plane {
+  position: relative;
+  width: min(720px, 86vw);
+  text-align: center;
+  transform-origin: 50% 100%;
+  padding-bottom: 6vh;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.credits-section.in-view .credits-plane,
+.credits-section.in-view .fin-card {
+  will-change: transform, opacity;
+}
+
+.credits-block {
+  margin-bottom: 14vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3vh;
+}
+
+.credits-block:last-child {
+  margin-bottom: 0;
+}
+
+.credits-title-mark {
+  font-family: var(--font-serif);
+  font-size: clamp(2.8rem, 7vw, 5.5rem);
+  font-weight: 400;
+  letter-spacing: 0.32em;
+  text-indent: 0.32em;
+  line-height: 1.05;
+  color: #FFFFFF;
+}
+
+.credits-label {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--accent);
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 0.55rem;
+  margin-bottom: 0.5vh;
+}
+
+.credits-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.credits-project-title {
+  font-family: var(--font-serif);
+  font-size: clamp(1.45rem, 4.5vw, 2rem);
+  font-weight: 400;
+  line-height: 1.15;
+  letter-spacing: 0.03em;
+  color: var(--text);
+}
+
+.credits-name {
+  font-family: var(--font-serif);
+  font-size: clamp(1.1rem, 3.6vw, 1.4rem);
+  font-weight: 400;
+  line-height: 1.3;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+
+.credits-role {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.credits-final-line {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: clamp(1.5rem, 4vw, 2.25rem);
+  font-weight: 400;
+  line-height: 1.25;
+  color: var(--text);
+}
+
+/* Finale Layer */
+.fin-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  padding: 1.5rem;
+  box-sizing: border-box;
+}
+
+.fin-stage {
+  perspective: 900px;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.fin-card {
+  width: min(640px, 90vw);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 1.5rem;
+  transform: translateZ(-700px) scale(0.92);
+}
+
+.fin-title {
+  font-family: var(--font-serif);
+  font-size: clamp(3.4rem, 10vw, 7.5rem);
+  font-weight: 400;
+  letter-spacing: 0.14em;
+  text-indent: 0.14em;
+  line-height: 1;
+  color: #FFFFFF;
+}
+
+.fin-closing-line {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: clamp(1.15rem, 2.4vw, 1.65rem);
+  color: var(--text);
+  line-height: 1.4;
+  max-width: 520px;
+  margin: 0;
+}
+
+.fin-cta-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 0.5rem;
+}
+
+.fin-cta-wrap .contact-action {
+  position: relative;
+  z-index: 1;
+}
+
+.fin-cta-pulse {
+  position: absolute;
+  inset: -18px -28px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(232, 163, 61, 0.28) 0%, transparent 70%);
+  pointer-events: none;
+  animation: finGlowPulse 4s ease-in-out infinite;
+}
+
+@keyframes finGlowPulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.9; }
+}
+
+@media (max-width: 768px), (max-aspect-ratio: 1/1) {
+  .credits-perspective,
+  .fin-stage {
+    perspective: 700px;
+  }
+
+  .credits-block {
+    margin-bottom: 12vh;
+    gap: 2.5vh;
+  }
 }
 
 /* --- TAB 2: EXPERIENCE EDITORIAL ROWS --- */
@@ -1736,5 +1978,57 @@ noscript .noscript-banner {
   }
   .scroll-cue-dot {
     animation: none;
+  }
+  .credits-section {
+    height: auto !important;
+  }
+  .credits-stage {
+    position: relative;
+    height: auto;
+    overflow: visible;
+    padding: clamp(4rem, 8vh, 6rem) 1.5rem;
+  }
+  .credits-mask-wrap {
+    position: relative;
+    height: auto;
+    mask-image: none;
+    -webkit-mask-image: none;
+  }
+  .credits-perspective,
+  .fin-stage {
+    position: relative;
+    height: auto;
+    perspective: none;
+    display: block;
+  }
+  .credits-plane {
+    margin: 0 auto;
+    transform: none !important;
+    opacity: 1 !important;
+    padding-bottom: 0;
+  }
+  .fin-layer {
+    position: relative;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    margin-top: 12vh;
+    padding: 0;
+  }
+  .fin-card {
+    margin: 0 auto;
+    transform: none !important;
+  }
+  .credits-block,
+  .fin-card {
+    opacity: 0;
+    transition: opacity 400ms ease !important;
+  }
+  .credits-block.is-visible,
+  .fin-card.is-visible {
+    opacity: 1;
+  }
+  .fin-cta-pulse {
+    animation: none;
+    opacity: 0.55;
   }
 }

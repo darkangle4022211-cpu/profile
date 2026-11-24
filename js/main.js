@@ -73,6 +73,24 @@
   let ringCardEls = [];
   let cardRenderState = [];
 
+  // Act 3: Closing Credits State
+  let creditsSectionEl = null;
+  let creditsStageEl = null;
+  let creditsPlaneEl = null;
+  let finLayerEl = null;
+  let finCardEl = null;
+  let creditsTop = 0;
+  let creditsScrollPx = 0;
+  let creditsStartY = 0;
+  let creditsEndY = 0;
+  let creditsTiltDeg = 50;
+  let targetC = 0;
+  let smoothedC = 0;
+  let isCreditsInView = false;
+  let isCreditsRafRunning = false;
+  let lastCreditsRafTime = performance.now();
+  let prefersReducedMotion = false;
+
   // Prevent scroll restoration jump
   if ("scrollRestoration" in history) {
     history.scrollRestoration = "manual";
@@ -158,6 +176,33 @@
 
     layoutRingCards();
     resizeCanvas();
+    syncCreditsLayout();
+  }
+
+  function syncCreditsLayout() {
+    if (!creditsSectionEl || !creditsStageEl || !creditsPlaneEl) return;
+    if (prefersReducedMotion) {
+      creditsSectionEl.style.height = "";
+      return;
+    }
+
+    const vh = cachedVh || window.innerHeight;
+    const creditsVh = cfg.CREDITS_SCROLL_VH || 450;
+    creditsScrollPx = creditsVh * 0.01 * vh;
+    creditsSectionEl.style.height = `${Math.round(vh + creditsScrollPx)}px`;
+    creditsTop = creditsSectionEl.getBoundingClientRect().top + window.scrollY;
+
+    const stageH = creditsStageEl.clientHeight || vh;
+    const planeH = creditsPlaneEl.offsetHeight;
+    const portrait = isPortraitMedia();
+    creditsTiltDeg = portrait ? 38 : (cfg.CREDITS_TILT_DEG || 50);
+    const persp = portrait ? 700 : 900;
+    const tiltRad = (creditsTiltDeg * Math.PI) / 180;
+    const denom = persp * Math.cos(tiltRad) - 0.30 * stageH * Math.sin(tiltRad);
+    const distToTop = (denom > 80) ? (persp * stageH) / denom : stageH * 2.4;
+
+    creditsStartY = planeH + 24;
+    creditsEndY = -distToTop;
   }
 
   /* --------------------------------------------------------------------------
@@ -421,6 +466,76 @@
     ringCardEls = Array.from(document.querySelectorAll(".ring-card"));
     cardRenderState = ringCardEls.map(() => ({ opacity: -1, active: false, pointer: "", visible: true }));
     lastActiveCardIdx = -1;
+
+    // Closing Credits Content (built dynamically from config.js)
+    creditsSectionEl = document.getElementById("credits");
+    creditsStageEl = document.getElementById("credits-stage");
+    creditsPlaneEl = document.getElementById("credits-plane");
+    finLayerEl = document.getElementById("fin-layer");
+    finCardEl = document.getElementById("fin-card");
+
+    const finClosingEl = document.getElementById("fin-closing-line");
+    if (finClosingEl && cfg.CREDITS_CLOSING_LINE) {
+      finClosingEl.textContent = cfg.CREDITS_CLOSING_LINE;
+    }
+
+    if (creditsPlaneEl) {
+      const uniqueTech = [];
+      if (Array.isArray(cfg.PROJECTS)) {
+        for (let i = 0; i < cfg.PROJECTS.length && uniqueTech.length < 12; i++) {
+          const techArr = cfg.PROJECTS[i].tech || [];
+          for (let j = 0; j < techArr.length && uniqueTech.length < 12; j++) {
+            if (!uniqueTech.includes(techArr[j])) uniqueTech.push(techArr[j]);
+          }
+        }
+      }
+
+      const starringHtml = Array.isArray(cfg.PROJECTS) ? cfg.PROJECTS.map(proj => `
+        <div class="credits-item">
+          <div class="credits-project-title">${proj.title}</div>
+          <div class="credits-role">${proj.category || "ENGINEERING"}</div>
+        </div>
+      `).join("") : "";
+
+      const builtWithHtml = uniqueTech.map(tag => `<div class="credits-name">${tag}</div>`).join("");
+
+      const toolsList = Array.isArray(cfg.CREDITS_TOOLS) ? cfg.CREDITS_TOOLS : [];
+      const directedWithHtml = toolsList.map(tool => `<div class="credits-name">${tool}</div>`).join("");
+
+      creditsPlaneEl.innerHTML = `
+        <div class="credits-block">
+          <div class="credits-title-mark">${cfg.BRAND || "AURA"}</div>
+          <div class="credits-role">A FILM BY ${cfg.NAME || ""}</div>
+        </div>
+
+        <div class="credits-block">
+          <div class="credits-label">[ STARRING ]</div>
+          ${starringHtml}
+        </div>
+
+        <div class="credits-block">
+          <div class="credits-label">[ BUILT WITH ]</div>
+          ${builtWithHtml}
+        </div>
+
+        <div class="credits-block">
+          <div class="credits-label">[ DIRECTED WITH ]</div>
+          ${directedWithHtml}
+        </div>
+
+        <div class="credits-block">
+          <div class="credits-label">[ VISUALS ]</div>
+          <div class="credits-item">
+            <div class="credits-role">Cinematography: AI-generated</div>
+            <div class="credits-name">Created with Google Flow (Veo) and Nano Banana</div>
+          </div>
+        </div>
+
+        <div class="credits-block">
+          <div class="credits-final-line">${cfg.FINAL_LINE || ""}</div>
+        </div>
+      `;
+    }
   }
 
   /* --------------------------------------------------------------------------
@@ -1251,17 +1366,134 @@
   }
 
   /* --------------------------------------------------------------------------
+     12b. CLOSING CREDITS ROLL & FINALE (IntersectionObserver-gated rAF)
+     -------------------------------------------------------------------------- */
+  function renderCredits(c) {
+    if (!creditsPlaneEl || !finLayerEl || !finCardEl) return;
+
+    const rollT = Math.min(Math.max(c / 0.8, 0), 1);
+    const y = creditsStartY + (creditsEndY - creditsStartY) * rollT;
+    creditsPlaneEl.style.transform = `rotateX(${creditsTiltDeg}deg) translateY(${y.toFixed(1)}px)`;
+
+    const planeAlpha = 1 - Math.min(Math.max((c - 0.78) / 0.12, 0), 1);
+    creditsPlaneEl.style.opacity = planeAlpha.toFixed(3);
+
+    const finT = Math.min(Math.max((c - 0.78) / 0.17, 0), 1);
+    const finEase = 1 - Math.pow(1 - finT, 3);
+    const finZ = -700 * (1 - finEase);
+    const finScale = 0.92 + 0.08 * finEase;
+
+    finLayerEl.style.opacity = finEase.toFixed(3);
+    finCardEl.style.transform = `translate3d(0, 0, ${finZ.toFixed(1)}px) scale(${finScale.toFixed(4)})`;
+    finLayerEl.style.pointerEvents = (finEase >= 0.995) ? "auto" : "none";
+  }
+
+  function startCreditsRafLoop() {
+    if (prefersReducedMotion || isCreditsRafRunning || !isCreditsInView) return;
+    isCreditsRafRunning = true;
+    lastCreditsRafTime = performance.now();
+    requestAnimationFrame(creditsRafTick);
+  }
+
+  function creditsRafTick(now) {
+    if (!isCreditsInView) {
+      isCreditsRafRunning = false;
+      return;
+    }
+
+    const dt = Math.min(Math.max(now - lastCreditsRafTime, 1), 50);
+    lastCreditsRafTime = now;
+
+    const decay = 1 - Math.pow(1 - 0.09, dt / 16.67);
+    smoothedC += (targetC - smoothedC) * decay;
+
+    if (Math.abs(targetC - smoothedC) < 0.0004) {
+      smoothedC = targetC;
+    }
+
+    renderCredits(smoothedC);
+
+    if (Math.abs(targetC - smoothedC) < 0.0004) {
+      isCreditsRafRunning = false;
+      return;
+    }
+
+    requestAnimationFrame(creditsRafTick);
+  }
+
+  function setSectionNavHidden(hidden) {
+    const navEls = document.querySelectorAll(".section-nav, #section-nav");
+    navEls.forEach(nav => {
+      nav.style.opacity = hidden ? "0" : "";
+      nav.style.pointerEvents = hidden ? "none" : "";
+    });
+  }
+
+  function initCredits() {
+    if (!creditsSectionEl) return;
+    prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    if (prefersReducedMotion) {
+      syncCreditsLayout();
+      const blocks = Array.from(creditsSectionEl.querySelectorAll(".credits-block, .fin-card"));
+      if ("IntersectionObserver" in window) {
+        const rmObserver = new IntersectionObserver((entries) => {
+          entries.forEach(entry => {
+            if (entry.isIntersecting) {
+              entry.target.classList.add("is-visible");
+              rmObserver.unobserve(entry.target);
+            }
+          });
+        }, { threshold: 0.12 });
+        blocks.forEach(el => rmObserver.observe(el));
+      } else {
+        blocks.forEach(el => el.classList.add("is-visible"));
+      }
+      return;
+    }
+
+    syncCreditsLayout();
+    targetC = creditsScrollPx > 0 ? Math.min(Math.max((window.scrollY - creditsTop) / creditsScrollPx, 0), 1) : 0;
+    smoothedC = targetC;
+    renderCredits(smoothedC);
+
+    if ("IntersectionObserver" in window) {
+      const creditsObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          isCreditsInView = entry.isIntersecting;
+          creditsSectionEl.classList.toggle("in-view", isCreditsInView);
+          setSectionNavHidden(isCreditsInView);
+
+          if (isCreditsInView) {
+            targetC = creditsScrollPx > 0 ? Math.min(Math.max((window.scrollY - creditsTop) / creditsScrollPx, 0), 1) : 0;
+            startCreditsRafLoop();
+          } else {
+            // Settle cleanly at boundary when scrolled past or above
+            targetC = window.scrollY >= creditsTop + creditsScrollPx ? 1 : 0;
+            smoothedC = targetC;
+            renderCredits(smoothedC);
+          }
+        });
+      }, { threshold: 0 });
+      creditsObserver.observe(creditsSectionEl);
+    }
+  }
+
+  /* --------------------------------------------------------------------------
      12. NATIVE SCROLL LISTENER (Zero layout reads, zero scroll-jacking)
      -------------------------------------------------------------------------- */
   function onScroll() {
-    if (!pinWrap) return;
+    if (pinWrap) {
+      const { wrapHeight, vh } = getStageMetrics();
+      const maxS = Math.max(0, wrapHeight - vh);
+      targetS = Math.min(Math.max(window.scrollY - cachedWrapTop, 0), maxS);
+      startRafLoop();
+    }
 
-    const { wrapHeight, vh } = getStageMetrics();
-    const maxS = Math.max(0, wrapHeight - vh);
-
-    targetS = Math.min(Math.max(window.scrollY - cachedWrapTop, 0), maxS);
-
-    startRafLoop();
+    if (!prefersReducedMotion && isCreditsInView && creditsScrollPx > 0) {
+      targetC = Math.min(Math.max((window.scrollY - creditsTop) / creditsScrollPx, 0), 1);
+      startCreditsRafLoop();
+    }
   }
 
   /* --------------------------------------------------------------------------
@@ -1440,6 +1672,7 @@
     hydrateContent();
     syncStageLayout(true);
     initRingControls();
+    initCredits();
     initTextScramble();
     initAuraCursor();
     initHeroLantern();

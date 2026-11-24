@@ -25,7 +25,7 @@
   <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Sans:wght@400;500;600&display=swap"></noscript>
 
   <!-- Stylesheet -->
-  <link rel="stylesheet" href="css/style.css?v=18">
+  <link rel="stylesheet" href="css/style.css?v=19">
 </head>
 <body class="loading-locked">
 
@@ -182,21 +182,50 @@
       </div>
     </section>
 
+    <!-- Act 3: Closing Credits Sequence -->
+    <section id="credits" class="credits-section" aria-label="Closing Credits">
+      <div id="credits-stage" class="credits-stage">
+        <div class="credits-glow" aria-hidden="true"></div>
+
+        <!-- Masked Perspective Roll Stage -->
+        <div class="credits-mask-wrap">
+          <div class="credits-perspective">
+            <div id="credits-plane" class="credits-plane">
+              <!-- Dynamically populated from config.js -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Finale Layer: FIN. Card + Moved CTA & Socials -->
+        <div id="fin-layer" class="fin-layer">
+          <div class="fin-stage">
+            <div id="fin-card" class="fin-card">
+              <div class="fin-title">FIN.</div>
+              <p id="fin-closing-line" class="fin-closing-line">Every great build starts with a conversation.</p>
+
+              <div class="fin-cta-wrap">
+                <div class="fin-cta-pulse" aria-hidden="true"></div>
+                <a id="contact-button" href="mailto:hamza.zafar4022211@gmail.com" class="contact-action">
+                  Get in Touch
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                    <polyline points="12 5 19 12 12 19"></polyline>
+                  </svg>
+                </a>
+              </div>
+
+              <ul id="socials-list" class="socials-list" aria-label="Social Profiles">
+                <!-- Dynamically populated from config.js -->
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- Plain Dark Void Footer -->
     <footer id="dossier-footer" class="void-footer">
-      <div class="footer-shell">
-        <a id="contact-button" href="mailto:hamza.zafar4022211@gmail.com" class="contact-action">
-          Get in Touch
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <line x1="5" y1="12" x2="19" y2="12"></line>
-            <polyline points="12 5 19 12 12 19"></polyline>
-          </svg>
-        </a>
-
-        <ul id="socials-list" class="socials-list" aria-label="Social Profiles">
-          <!-- Dynamically populated from config.js -->
-        </ul>
-
+      <div class="footer-shell footer-shell-credit">
         <p id="footer-note" class="footer-note">Crafted by Muhammad Hamza Zafar // Founder Axovion.io</p>
       </div>
     </footer>
@@ -209,10 +238,10 @@
   </div>
 
   <!-- Optional frames manifest written by tools/make_frames script -->
-  <script src="frames/manifest.js?v=18" onerror="this.onerror=null;"></script>
+  <script src="frames/manifest.js?v=19" onerror="this.onerror=null;"></script>
   <!-- Personal Configuration & Content -->
-  <script src="js/config.js?v=18"></script>
+  <script src="js/config.js?v=19"></script>
   <!-- Main Application Logic -->
-  <script src="js/main.js?v=18"></script>
+  <script src="js/main.js?v=19"></script>
 </body>
 </html>

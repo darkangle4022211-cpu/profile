@@ -677,7 +677,30 @@
     { el: document.getElementById("beat-5"), min: 0.80, max: 1.00 } // Holds to end
   ];
 
-  function updateNarrativeBeats(p) {
+  function updateNarrativeBeats(p, scrollY, heroMaxScroll) {
+    const beat5 = document.getElementById("beat-5");
+
+    // When scrolling past heroMaxScroll into the rising dossier, smoothly dissolve beat 5 rapidly
+    if (typeof scrollY === "number" && typeof heroMaxScroll === "number" && scrollY > heroMaxScroll) {
+      const dissolveDist = window.innerHeight * 0.2;
+      const fadeRatio = Math.min((scrollY - heroMaxScroll) / dissolveDist, 1);
+      if (beat5) {
+        beat5.style.opacity = String(Math.max(0, 1 - fadeRatio).toFixed(3));
+        beat5.style.transform = `translateY(calc(-50% - ${fadeRatio * 30}px))`;
+        beat5.style.pointerEvents = "none";
+      }
+      for (let i = 0; i < beats.length - 1; i++) {
+        if (beats[i].el) beats[i].el.classList.remove("active");
+      }
+      return;
+    }
+
+    if (beat5) {
+      beat5.style.opacity = "";
+      beat5.style.transform = "";
+      beat5.style.pointerEvents = "";
+    }
+
     for (let i = 0; i < beats.length; i++) {
       const beat = beats[i];
       if (!beat.el) continue;
@@ -696,20 +719,11 @@
     const scrollY = window.scrollY;
     targetProgress = Math.min(Math.max((scrollY - heroTop) / maxScroll, 0), 1);
 
-    // Update narrative beats
-    updateNarrativeBeats(targetProgress);
+    // Update narrative beats and fade out creed as dossier rises
+    updateNarrativeBeats(targetProgress, scrollY, maxScroll);
 
-    // Smooth transition into Dossier stage (Act 2)
-    const dossierStage = document.querySelector(".dossier-sticky-stage");
-    if (scrollY >= maxScroll - window.innerHeight * 0.2) {
-      if (dossierStage) dossierStage.classList.add("dossier-visible");
-      const dimFactor = Math.min((scrollY - maxScroll) / (window.innerHeight * 0.5), 1);
-      const targetOpacity = Math.max((1.0 - 0.85 * dimFactor), 0.12).toFixed(3);
-      canvas.style.opacity = targetOpacity;
-    } else {
-      if (dossierStage) dossierStage.classList.remove("dossier-visible");
-      canvas.style.opacity = "1";
-    }
+    // Keep video canvas visible at all times — NEVER close or black out the video!
+    canvas.style.opacity = "1";
 
     if (typeof updateHorizontalProjects === "function") {
       updateHorizontalProjects();
@@ -737,16 +751,14 @@
     if (!viewport || !track || !dossierWrapper || !heroEl) return;
 
     function calculateProgress() {
-      const heroHeight = heroEl.offsetHeight;
-      const heroMaxScroll = heroHeight - window.innerHeight;
+      const dossierStart = heroEl.offsetHeight;
+      const dossierTrackHeight = dossierWrapper.offsetHeight - window.innerHeight;
       const scrollY = window.scrollY;
 
-      if (scrollY <= heroMaxScroll) return 0;
-
-      const dossierTrackHeight = dossierWrapper.offsetHeight - window.innerHeight;
+      if (scrollY <= dossierStart) return 0;
       if (dossierTrackHeight <= 0) return 0;
 
-      const over = scrollY - heroMaxScroll;
+      const over = scrollY - dossierStart;
       return Math.min(Math.max(over / dossierTrackHeight, 0), 1);
     }
 
@@ -768,6 +780,15 @@
       // Slide sideways (100vw per card slide for pure single-card focus)
       track.style.transform = `translate3d(-${(currentSlideFloat * 100).toFixed(2)}vw, 0, 0)`;
 
+      // Ensure single-card focus by fading out non-active adjacent cards
+      slides.forEach((slide, idx) => {
+        const dist = Math.abs(currentSlideFloat - idx);
+        const slideOpacity = Math.max(0, Math.min(1, 1 - dist * 1.5));
+        slide.style.opacity = slideOpacity.toFixed(3);
+        const slideScale = Math.max(0.95, 1 - dist * 0.05);
+        slide.style.transform = `scale(${slideScale.toFixed(3)})`;
+      });
+
       // Active slide index & UI updates
       const activeIdx = Math.min(Math.max(Math.round(currentSlideFloat), 0), slides.length - 1);
 
@@ -787,11 +808,10 @@
       if (!slides.length) return;
 
       const clamped = Math.min(Math.max(targetIdx, 0), slides.length - 1);
-      const heroHeight = heroEl.offsetHeight;
-      const heroMaxScroll = heroHeight - window.innerHeight;
+      const dossierStart = heroEl.offsetHeight;
       const dossierTrackHeight = dossierWrapper.offsetHeight - window.innerHeight;
 
-      const targetScrollY = heroMaxScroll + (clamped / (slides.length - 1)) * dossierTrackHeight + 2;
+      const targetScrollY = dossierStart + (clamped / (slides.length - 1)) * dossierTrackHeight + 2;
       window.scrollTo({ top: targetScrollY, behavior: "smooth" });
     }
 
@@ -832,12 +852,11 @@
     window.addEventListener("scroll", () => {
       clearTimeout(settleTimeout);
       settleTimeout = setTimeout(() => {
-        const heroHeight = heroEl.offsetHeight;
-        const heroMaxScroll = heroHeight - window.innerHeight;
+        const dossierStart = heroEl.offsetHeight;
         const dossierTrackHeight = dossierWrapper.offsetHeight - window.innerHeight;
         const scrollY = window.scrollY;
 
-        if (scrollY > heroMaxScroll + 20 && scrollY < heroMaxScroll + dossierTrackHeight - 20) {
+        if (scrollY > dossierStart + 20 && scrollY < dossierStart + dossierTrackHeight - 20) {
           const nearestIdx = Math.round(currentSlideFloat);
           if (Math.abs(currentSlideFloat - nearestIdx) > 0.04) {
             navigateToCard(nearestIdx);

@@ -91,7 +91,16 @@
     if (preloaderName) preloaderName.textContent = cfg.BRAND || cfg.NAME || "AURA";
 
     const heroName = document.getElementById("hero-name");
-    if (heroName && cfg.NAME) heroName.textContent = cfg.NAME;
+    if (heroName && cfg.NAME) {
+      heroName.setAttribute("aria-label", cfg.NAME);
+      const words = cfg.NAME.split(" ");
+      heroName.innerHTML = words.map(word => {
+        const letters = word.split("").map(ch => 
+          `<span class="hero-char" aria-hidden="true">${ch}</span>`
+        ).join("");
+        return `<span class="hero-word">${letters}</span>`;
+      }).join('<span class="char-space">&nbsp;</span>');
+    }
 
     const heroRole = document.getElementById("hero-role");
     if (heroRole && cfg.ROLE_LINE) heroRole.textContent = cfg.ROLE_LINE;
@@ -106,7 +115,13 @@
 
     // Final Creed
     const finalEl = document.getElementById("final-line");
-    if (finalEl && cfg.FINAL_LINE) finalEl.textContent = cfg.FINAL_LINE;
+    if (finalEl && cfg.FINAL_LINE) {
+      finalEl.setAttribute("aria-label", cfg.FINAL_LINE);
+      const words = cfg.FINAL_LINE.split(" ");
+      finalEl.innerHTML = words.map(word => 
+        `<span class="creed-word" aria-hidden="true">${word}</span>`
+      ).join(" ");
+    }
 
     // Footer Note
     const footerNote = document.getElementById("footer-note");
@@ -229,7 +244,7 @@
     const isMobile = window.matchMedia("(max-aspect-ratio: 1/1)").matches;
     const template = (isMobile && cfg.FRAME_PATH_MOBILE) ? cfg.FRAME_PATH_MOBILE : (cfg.FRAME_PATH || "frames/frame_{n}.webp");
     const num = String(index + 1).padStart(3, "0");
-    return template.replace("{n}", num) + "?v=5";
+    return template.replace("{n}", num) + "?v=6";
   }
 
   function loadImageWithRetry(src, isRetry = false) {
@@ -700,13 +715,172 @@
   }
 
   /* --------------------------------------------------------------------------
-     10. INITIALIZATION
+     10. NOIR CIPHER TEXT SCRAMBLE
+     -------------------------------------------------------------------------- */
+  function initTextScramble() {
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_//--++**";
+
+    function scrambleElement(el) {
+      if (!el || el.dataset.scrambling === "true") return;
+
+      const original = el.dataset.originalText || el.textContent.trim();
+      if (!original) return;
+      el.dataset.originalText = original;
+      el.dataset.scrambling = "true";
+      el.classList.add("scramble-active");
+
+      const length = original.length;
+      let frame = 0;
+      const totalFrames = 8; // ~200ms total
+
+      const timer = setInterval(() => {
+        frame++;
+        const revealedCount = Math.floor((frame / totalFrames) * length);
+
+        let scrambled = "";
+        for (let i = 0; i < length; i++) {
+          const char = original[i];
+          if (char === " " || char === "/" || char === "[" || char === "]" || char === "&" || char === "-") {
+            scrambled += char;
+          } else if (i < revealedCount) {
+            scrambled += char;
+          } else {
+            scrambled += chars[Math.floor(Math.random() * chars.length)];
+          }
+        }
+
+        el.textContent = scrambled;
+
+        if (frame >= totalFrames) {
+          clearInterval(timer);
+          el.textContent = original;
+          el.dataset.scrambling = "false";
+          el.classList.remove("scramble-active");
+        }
+      }, 25);
+    }
+
+    const scrambleSelector = ".hero-role, .scroll-cue-text, .final-lead, .dossier-eyebrow, .tab-button, .project-index, .project-tech, .experience-period, .experience-org, .skill-group-title, .footer-note";
+
+    document.addEventListener("mouseenter", (e) => {
+      const target = e.target;
+      if (target && target.matches && target.matches(scrambleSelector)) {
+        scrambleElement(target);
+      }
+    }, true);
+  }
+
+  /* --------------------------------------------------------------------------
+     11. AMBIENT NOIR CURSOR FOLLOWER & FONT FOCUS AURA
+     -------------------------------------------------------------------------- */
+  function initAuraCursor() {
+    if (window.matchMedia("(pointer: coarse)").matches) return;
+    const cursorWrap = document.getElementById("aura-cursor");
+    if (!cursorWrap) return;
+    const dot = cursorWrap.querySelector(".aura-cursor-dot");
+    const ring = cursorWrap.querySelector(".aura-cursor-ring");
+    if (!dot || !ring) return;
+
+    let mouseX = -100;
+    let mouseY = -100;
+    let ringX = -100;
+    let ringY = -100;
+    let isVisible = false;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    window.addEventListener("mousemove", (e) => {
+      mouseX = e.clientX;
+      mouseY = e.clientY;
+      if (!isVisible) {
+        isVisible = true;
+        cursorWrap.classList.add("active");
+        ringX = mouseX;
+        ringY = mouseY;
+      }
+      dot.style.transform = `translate3d(${mouseX}px, ${mouseY}px, 0)`;
+      if (reducedMotion) {
+        ring.style.transform = `translate3d(${mouseX}px, ${mouseY}px, 0)`;
+      }
+    }, { passive: true });
+
+    window.addEventListener("mouseleave", () => {
+      isVisible = false;
+      cursorWrap.classList.remove("active");
+    });
+
+    if (!reducedMotion) {
+      function renderCursor() {
+        if (isVisible) {
+          ringX += (mouseX - ringX) * 0.18;
+          ringY += (mouseY - ringY) * 0.18;
+          ring.style.transform = `translate3d(${ringX}px, ${ringY}px, 0)`;
+        }
+        requestAnimationFrame(renderCursor);
+      }
+      requestAnimationFrame(renderCursor);
+    }
+
+    document.addEventListener("mouseover", (e) => {
+      const target = e.target;
+      if (!target) return;
+
+      const actionEl = target.closest("a, button, .tab-button, .contact-action, .social-link");
+      if (actionEl) {
+        cursorWrap.classList.add("hovering-action");
+        cursorWrap.classList.remove("hovering-text");
+        return;
+      }
+
+      const textEl = target.closest("h1, h2, h3, p, span, li, .hero-name, .hero-role, .beat-quote, .final-title, .project-tech, .experience-org, .skill-item");
+      if (textEl) {
+        cursorWrap.classList.add("hovering-text");
+        cursorWrap.classList.remove("hovering-action");
+        return;
+      }
+
+      cursorWrap.classList.remove("hovering-text", "hovering-action");
+    }, { passive: true });
+  }
+
+  /* --------------------------------------------------------------------------
+     12. AMBIENT HERO LANTERN / MATCH LIGHT TRACKER
+     -------------------------------------------------------------------------- */
+  function initHeroLantern() {
+    const heroSticky = document.querySelector(".hero-sticky");
+    if (!heroSticky || window.matchMedia("(pointer: coarse)").matches) return;
+
+    let ticking = false;
+    heroSticky.addEventListener("mousemove", (e) => {
+      if (!ticking) {
+        requestAnimationFrame(() => {
+          const rect = heroSticky.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
+          heroSticky.style.setProperty("--mouse-x", `${x}px`);
+          heroSticky.style.setProperty("--mouse-y", `${y}px`);
+          heroSticky.classList.add("mouse-active");
+          ticking = false;
+        });
+        ticking = true;
+      }
+    }, { passive: true });
+
+    heroSticky.addEventListener("mouseleave", () => {
+      heroSticky.classList.remove("mouse-active");
+    });
+  }
+
+  /* --------------------------------------------------------------------------
+     13. INITIALIZATION
      -------------------------------------------------------------------------- */
   function init() {
     initFilmGrain();
     hydrateContent();
     resizeCanvas();
     initTabs();
+    initTextScramble();
+    initAuraCursor();
+    initHeroLantern();
 
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", resizeCanvas, { passive: true });

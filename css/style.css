@@ -216,6 +216,27 @@ body.loading-locked {
   z-index: 2;
 }
 
+/* Ambient match / lantern light tracking cursor */
+.hero-lantern {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  background: radial-gradient(
+    circle 280px at var(--mouse-x, -500px) var(--mouse-y, -500px),
+    rgba(232, 163, 61, 0.09) 0%,
+    rgba(232, 163, 61, 0.02) 45%,
+    transparent 70%
+  );
+  opacity: 0;
+  transition: opacity 400ms ease;
+  mix-blend-mode: screen;
+}
+
+.hero-sticky.mouse-active .hero-lantern {
+  opacity: 1;
+}
+
 /* Scroll-linked dynamic typography overlay */
 .hero-overlay {
   position: absolute;
@@ -245,6 +266,11 @@ body.loading-locked {
   opacity: 1;
   transform: translateY(0);
   filter: blur(0px);
+  pointer-events: auto;
+}
+
+.beat.active * {
+  pointer-events: auto;
 }
 
 /* Intro Beat: Name & Role */
@@ -261,12 +287,40 @@ body.loading-locked {
 
 .hero-name {
   font-family: var(--font-serif);
-  font-size: clamp(3rem, 8vw, 6.5rem);
+  font-size: clamp(2.4rem, 6.5vw, 5.5rem);
   font-weight: 400;
-  line-height: 0.95;
-  letter-spacing: -0.02em;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
   color: var(--text);
   margin-bottom: 1.25rem;
+  cursor: default;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+
+.hero-word {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.hero-char {
+  display: inline-block;
+  transition: transform 200ms var(--ease),
+              color 200ms var(--ease),
+              text-shadow 200ms var(--ease);
+  cursor: default;
+  will-change: transform;
+}
+
+.hero-char:hover {
+  transform: translateY(-5px) scale(1.08);
+  color: #FFFFFF;
+  text-shadow: 0 0 25px var(--accent-glow), 0 0 4px #FFFFFF;
+}
+
+.char-space {
+  display: inline-block;
+  width: 0.3em;
 }
 
 .hero-role {
@@ -275,6 +329,16 @@ body.loading-locked {
   letter-spacing: 0.22em;
   text-transform: uppercase;
   color: var(--accent);
+  cursor: default;
+  transition: color var(--duration-fast) var(--ease),
+              text-shadow var(--duration-fast) var(--ease),
+              letter-spacing var(--duration-fast) var(--ease);
+}
+
+.hero-role:hover {
+  color: var(--accent-glow);
+  letter-spacing: 0.25em;
+  text-shadow: 0 0 14px rgba(232, 163, 61, 0.75);
 }
 
 /* Scroll Cue */
@@ -317,6 +381,14 @@ body.loading-locked {
   letter-spacing: 0.25em;
   text-transform: uppercase;
   color: var(--text-secondary);
+  cursor: default;
+  transition: color var(--duration-fast) var(--ease),
+              text-shadow var(--duration-fast) var(--ease);
+}
+
+.scroll-cue-text:hover {
+  color: var(--accent);
+  text-shadow: 0 0 10px rgba(232, 163, 61, 0.6);
 }
 
 /* Quotes: alternating margins, max 22ch to never obscure center figure */
@@ -328,6 +400,23 @@ body.loading-locked {
   font-weight: 400;
   line-height: 1.2;
   color: var(--text);
+}
+
+.beat-quote p {
+  display: inline-block;
+  transition: transform 300ms var(--ease),
+              color 300ms var(--ease),
+              text-shadow 300ms var(--ease),
+              letter-spacing 300ms var(--ease);
+  cursor: default;
+}
+
+.beat-quote p:hover {
+  transform: translateY(-3px);
+  color: #FFFFFF;
+  letter-spacing: 0.015em;
+  text-shadow: 0 0 24px rgba(232, 163, 61, 0.6),
+               0 0 2px rgba(255, 230, 180, 0.85);
 }
 
 .beat-quote-1 {
@@ -371,6 +460,14 @@ body.loading-locked {
   text-transform: uppercase;
   color: var(--text-secondary);
   margin-bottom: 0.75rem;
+  cursor: default;
+  transition: color var(--duration-fast) var(--ease),
+              text-shadow var(--duration-fast) var(--ease);
+}
+
+.beat-final .final-lead:hover {
+  color: var(--accent);
+  text-shadow: 0 0 12px rgba(232, 163, 61, 0.6);
 }
 
 .beat-final .final-title {
@@ -379,6 +476,22 @@ body.loading-locked {
   font-weight: 400;
   line-height: 1.1;
   color: var(--accent);
+  cursor: default;
+}
+
+.creed-word {
+  display: inline-block;
+  transition: transform 250ms var(--ease),
+              color 250ms var(--ease),
+              text-shadow 250ms var(--ease),
+              letter-spacing 250ms var(--ease);
+  cursor: default;
+}
+
+.creed-word:hover {
+  transform: translateY(-3px) scale(1.03);
+  color: #FFFDF7;
+  text-shadow: 0 0 35px rgba(232, 163, 61, 0.95), 0 0 6px #FFFFFF;
 }
 
 /* Portrait adjustments: bottom 18% */
@@ -458,6 +571,14 @@ body.loading-locked {
   letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--accent);
+  cursor: default;
+  transition: color var(--duration-fast) var(--ease),
+              text-shadow var(--duration-fast) var(--ease);
+}
+
+.dossier-eyebrow:hover {
+  color: var(--accent-glow);
+  text-shadow: 0 0 12px rgba(232, 163, 61, 0.7);
 }
 
 .dossier-eyebrow::before {
@@ -468,6 +589,13 @@ body.loading-locked {
   background-color: var(--accent);
   box-shadow: 0 0 6px var(--accent-glow);
   border-radius: 50%;
+  transition: transform var(--duration-fast) var(--ease),
+              box-shadow var(--duration-fast) var(--ease);
+}
+
+.dossier-eyebrow:hover::before {
+  transform: scale(1.4);
+  box-shadow: 0 0 10px var(--accent-glow);
 }
 
 /* Tabs Navigation */
@@ -488,12 +616,16 @@ body.loading-locked {
   text-transform: uppercase;
   padding: 0.5rem 0;
   cursor: pointer;
-  transition: color var(--duration-fast) var(--ease);
+  transition: color var(--duration-fast) var(--ease),
+              letter-spacing var(--duration-fast) var(--ease),
+              text-shadow var(--duration-fast) var(--ease);
   position: relative;
 }
 
 .tab-button:hover {
-  color: var(--text);
+  color: #FFFFFF;
+  letter-spacing: 0.18em;
+  text-shadow: 0 0 12px rgba(232, 163, 61, 0.5);
 }
 
 .tab-button[aria-selected="true"] {
@@ -591,6 +723,8 @@ body.loading-locked {
   font-size: 0.75rem;
   color: var(--text-secondary);
   letter-spacing: 0.1em;
+  transition: color var(--duration-fast) var(--ease),
+              text-shadow var(--duration-fast) var(--ease);
 }
 
 .project-arrow {
@@ -611,6 +745,21 @@ body.loading-locked {
   line-height: 1.15;
   color: var(--text);
   margin-bottom: 0.75rem;
+  transition: color var(--duration-fast) var(--ease),
+              text-shadow var(--duration-fast) var(--ease),
+              letter-spacing var(--duration-fast) var(--ease);
+}
+
+.project-card:hover .project-title {
+  color: #FFFFFF;
+  letter-spacing: 0.015em;
+  text-shadow: 0 0 20px rgba(232, 163, 61, 0.45),
+               0 0 2px rgba(255, 230, 180, 0.75);
+}
+
+.project-card:hover .project-index {
+  color: var(--accent);
+  text-shadow: 0 0 10px rgba(232, 163, 61, 0.5);
 }
 
 .project-desc {
@@ -619,6 +768,11 @@ body.loading-locked {
   color: var(--text-secondary);
   line-height: 1.6;
   margin-bottom: 2rem;
+  transition: color var(--duration-fast) var(--ease);
+}
+
+.project-card:hover .project-desc {
+  color: #DDD9D0;
 }
 
 .project-tech {
@@ -628,6 +782,13 @@ body.loading-locked {
   color: var(--accent);
   border-top: 1px solid var(--border-subtle);
   padding-top: 1rem;
+  transition: color var(--duration-fast) var(--ease),
+              text-shadow var(--duration-fast) var(--ease);
+}
+
+.project-card:hover .project-tech {
+  color: var(--accent-glow);
+  text-shadow: 0 0 10px rgba(232, 163, 61, 0.4);
 }
 
 /* --- TAB 2: EXPERIENCE EDITORIAL ROWS --- */
@@ -642,6 +803,7 @@ body.loading-locked {
   padding: 2.75rem 0;
   border-bottom: 1px solid var(--border-subtle);
   gap: 2rem;
+  transition: background var(--duration-fast) var(--ease);
 }
 
 .experience-row:first-child {
@@ -658,6 +820,14 @@ body.loading-locked {
   font-size: 0.8rem;
   letter-spacing: 0.12em;
   color: var(--accent);
+  cursor: default;
+  transition: color var(--duration-fast) var(--ease),
+              text-shadow var(--duration-fast) var(--ease);
+}
+
+.experience-row:hover .experience-period {
+  color: var(--accent-glow);
+  text-shadow: 0 0 10px rgba(232, 163, 61, 0.5);
 }
 
 .experience-content {
@@ -672,6 +842,19 @@ body.loading-locked {
   font-weight: 400;
   color: var(--text);
   line-height: 1.2;
+  cursor: default;
+  transition: color var(--duration-fast) var(--ease),
+              text-shadow var(--duration-fast) var(--ease),
+              transform var(--duration-fast) var(--ease),
+              letter-spacing var(--duration-fast) var(--ease);
+}
+
+.experience-row:hover .experience-role {
+  color: #FFFFFF;
+  letter-spacing: 0.015em;
+  text-shadow: 0 0 20px rgba(232, 163, 61, 0.5),
+               0 0 2px rgba(255, 230, 180, 0.8);
+  transform: translateX(4px);
 }
 
 .experience-org {
@@ -681,6 +864,13 @@ body.loading-locked {
   text-transform: uppercase;
   color: var(--text-secondary);
   margin-bottom: 0.5rem;
+  cursor: default;
+  transition: color var(--duration-fast) var(--ease),
+              text-shadow var(--duration-fast) var(--ease);
+}
+
+.experience-row:hover .experience-org {
+  color: #FFFFFF;
 }
 
 .experience-points {
@@ -697,6 +887,9 @@ body.loading-locked {
   color: var(--text-secondary);
   position: relative;
   padding-left: 1.25rem;
+  cursor: default;
+  transition: color var(--duration-fast) var(--ease),
+              transform var(--duration-fast) var(--ease);
 }
 
 .experience-point::before {
@@ -704,6 +897,19 @@ body.loading-locked {
   position: absolute;
   left: 0;
   color: var(--text-muted);
+  transition: color var(--duration-fast) var(--ease),
+              text-shadow var(--duration-fast) var(--ease),
+              transform var(--duration-fast) var(--ease);
+}
+
+.experience-point:hover {
+  color: #EDEAE3;
+  transform: translateX(4px);
+}
+
+.experience-point:hover::before {
+  color: var(--accent);
+  text-shadow: 0 0 8px var(--accent-glow);
 }
 
 /* --- TAB 3: SKILLS GROUPED COLUMNS --- */
@@ -728,6 +934,16 @@ body.loading-locked {
   color: var(--accent);
   border-bottom: 1px solid var(--border-subtle);
   padding-bottom: 0.75rem;
+  cursor: default;
+  transition: color var(--duration-fast) var(--ease),
+              text-shadow var(--duration-fast) var(--ease),
+              border-color var(--duration-fast) var(--ease);
+}
+
+.skill-group-title:hover {
+  color: var(--accent-glow);
+  border-color: var(--accent-soft);
+  text-shadow: 0 0 12px rgba(232, 163, 61, 0.6);
 }
 
 .skill-list {
@@ -744,6 +960,10 @@ body.loading-locked {
   display: flex;
   align-items: center;
   gap: 0.6rem;
+  cursor: default;
+  transition: transform var(--duration-fast) var(--ease),
+              color var(--duration-fast) var(--ease),
+              text-shadow var(--duration-fast) var(--ease);
 }
 
 .skill-item::before {
@@ -753,6 +973,22 @@ body.loading-locked {
   height: 3px;
   background-color: var(--text-muted);
   border-radius: 50%;
+  transition: background-color var(--duration-fast) var(--ease),
+              box-shadow var(--duration-fast) var(--ease),
+              transform var(--duration-fast) var(--ease);
+}
+
+.skill-item:hover {
+  transform: translateX(6px);
+  color: #FFFFFF;
+  text-shadow: 0 0 16px rgba(232, 163, 61, 0.5),
+               0 0 2px rgba(255, 230, 180, 0.8);
+}
+
+.skill-item:hover::before {
+  background-color: var(--accent);
+  box-shadow: 0 0 8px var(--accent-glow);
+  transform: scale(1.6);
 }
 
 /* --- FOOTER & CONTACT --- */
@@ -834,6 +1070,101 @@ body.loading-locked {
   font-size: 0.7rem;
   letter-spacing: 0.12em;
   color: var(--text-muted);
+  cursor: default;
+  transition: color var(--duration-fast) var(--ease),
+              text-shadow var(--duration-fast) var(--ease);
+}
+
+.footer-note:hover {
+  color: var(--text-secondary);
+  text-shadow: 0 0 10px rgba(232, 163, 61, 0.35);
+}
+
+/* Active state during cipher scramble */
+.scramble-active {
+  color: var(--accent-glow) !important;
+  text-shadow: 0 0 12px rgba(232, 163, 61, 0.75) !important;
+}
+
+/* --- Ambient Noir Cursor Follower --- */
+.aura-cursor {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0;
+  transition: opacity 300ms ease;
+}
+
+.aura-cursor.active {
+  opacity: 1;
+}
+
+.aura-cursor-dot {
+  position: fixed;
+  top: -3px;
+  left: -3px;
+  width: 6px;
+  height: 6px;
+  background-color: var(--accent);
+  border-radius: 50%;
+  pointer-events: none;
+  box-shadow: 0 0 10px var(--accent-glow);
+  transform: translate3d(-100px, -100px, 0);
+  will-change: transform;
+}
+
+.aura-cursor-ring {
+  position: fixed;
+  top: -18px;
+  left: -18px;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(232, 163, 61, 0.4);
+  border-radius: 50%;
+  pointer-events: none;
+  transform: translate3d(-100px, -100px, 0);
+  will-change: transform, width, height, border-color, background;
+  transition: width 250ms var(--ease),
+              height 250ms var(--ease),
+              top 250ms var(--ease),
+              left 250ms var(--ease),
+              border-color 250ms var(--ease),
+              background-color 250ms var(--ease),
+              box-shadow 250ms var(--ease);
+}
+
+/* Hovering over typography / font elements */
+.aura-cursor.hovering-text .aura-cursor-ring {
+  top: -28px;
+  left: -28px;
+  width: 56px;
+  height: 56px;
+  border-color: rgba(232, 163, 61, 0.75);
+  background-color: rgba(232, 163, 61, 0.06);
+  box-shadow: 0 0 20px rgba(232, 163, 61, 0.25);
+  backdrop-filter: blur(1px);
+}
+
+/* Hovering over links / buttons */
+.aura-cursor.hovering-action .aura-cursor-ring {
+  top: -22px;
+  left: -22px;
+  width: 44px;
+  height: 44px;
+  border-color: var(--accent-glow);
+  background-color: rgba(232, 163, 61, 0.15);
+  box-shadow: 0 0 25px rgba(232, 163, 61, 0.4);
+}
+
+/* Touch devices: cleanly disabled */
+@media (pointer: coarse) {
+  .aura-cursor {
+    display: none !important;
+  }
 }
 
 /* --- NOSCRIPT FALLBACK --- */

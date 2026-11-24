@@ -27,7 +27,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 
   <!-- Stylesheet -->
-  <link rel="stylesheet" href="css/style.css?v=5">
+  <link rel="stylesheet" href="css/style.css?v=6">
 </head>
 <body class="loading-locked">
 
@@ -65,6 +65,9 @@
       
       <!-- Radial vignette to blend video edges into black -->
       <div class="hero-vignette" aria-hidden="true"></div>
+
+      <!-- Ambient match / lantern flare tracking cursor -->
+      <div class="hero-lantern" aria-hidden="true"></div>
 
       <!-- Scroll-Linked Narrative Typography Overlay -->
       <div class="hero-overlay" aria-hidden="true">
@@ -166,11 +169,17 @@
     </div>
   </main>
 
+  <!-- Ambient Noir Cursor Follower -->
+  <div id="aura-cursor" class="aura-cursor" aria-hidden="true">
+    <div class="aura-cursor-dot"></div>
+    <div class="aura-cursor-ring"></div>
+  </div>
+
   <!-- Optional frames manifest written by tools/make_frames script -->
-  <script src="frames/manifest.js?v=5" onerror="this.onerror=null;"></script>
+  <script src="frames/manifest.js?v=6" onerror="this.onerror=null;"></script>
   <!-- Personal Configuration & Content -->
-  <script src="js/config.js?v=5"></script>
+  <script src="js/config.js?v=6"></script>
   <!-- Main Application Logic -->
-  <script src="js/main.js?v=5"></script>
+  <script src="js/main.js?v=6"></script>
 </body>
 </html>

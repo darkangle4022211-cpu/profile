@@ -814,18 +814,19 @@
   }
 
   function runGradualPreloaderSweep() {
-    const startAt = performance.now();
+    let startAt = null;
     const rampMs = 440;
     const hardMaxMs = 680;
     let lastShown = -1;
 
     const tick = (now) => {
       if (uiUnlocked) return;
-      const elapsed = now - startAt;
+      if (startAt === null) startAt = now;
+      const elapsed = Math.max(0, now - startAt);
       const frame0Ready = frameStatus[0] === 2 || Boolean(posterImg && posterImg.naturalWidth);
-      const linearT = Math.min(elapsed / rampMs, 1);
-      // Ease out slightly so percentage climbs smoothly 0 -> 100 integer by integer
-      let pct = Math.floor(linearT * 99);
+      const linearT = Math.min(Math.max(elapsed / rampMs, 0), 1);
+      // Smooth 0 -> 100 integer progression without negative initial delta
+      let pct = Math.max(0, Math.floor(linearT * 99));
       if (linearT >= 1 && (frame0Ready || elapsed >= hardMaxMs)) {
         pct = 100;
       }

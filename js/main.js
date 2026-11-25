@@ -44,7 +44,16 @@
   const frameStatus = new Uint8Array(frameCount); // 0=idle, 1=loading, 2=loaded, 3=failed
   const bitmapDecoding = new Uint8Array(frameCount);
   const KEYFRAME_STEP = 8;
-  const MAX_MOBILE_BITMAPS = 44;
+  const MAX_BITMAP_DECODES = 2;
+  const MAX_BITMAPS_DESKTOP = 64;
+  const MAX_BITMAPS_MOBILE = 52;
+  let bitmapQueue = [];
+  let activeBitmapDecodes = 0;
+  let posterImg = null;
+  let uiUnlocked = false;
+  let lastDrawnIsPoster = false;
+  let lastBoostedTarget = -1;
+  let cachedMobile = false;
   let framesLoadedCount = 0;
   let isProceduralFallback = false;
   let targetS = 0;
@@ -93,6 +102,7 @@
   function computeStageMetrics() {
     const vh = cachedVh || window.innerHeight;
     const mobile = isMobileLayout();
+    cachedMobile = mobile;
     const numProjects = (Array.isArray(cfg.PROJECTS) && cfg.PROJECTS.length > 0) ? cfg.PROJECTS.length : 5;
     const heroVh = mobile ? (cfg.HERO_SCROLL_VH_MOBILE || 200) : (cfg.HERO_SCROLL_VH || 300);
     const transVh = mobile ? (cfg.TRANSITION_VH_MOBILE || 45) : (cfg.TRANSITION_VH || 65);
@@ -143,8 +153,11 @@
   function syncStageLayout(force = false) {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    // Ignore minor vertical browser chrome (address bar) show/hide changes on mobile
-    if (!force && cachedVw === vw && Math.abs(vh - cachedVh) <= 120) {
+    // Ignore minor vertical browser chrome (address/bottom bar) show/hide changes for scroll budget
+    // so total scroll length stays steady, while still resizing the canvas to fill 100dvh cleanly
+    if (!force && cachedVw === vw && Math.abs(vh - cachedVh) <= 140) {
+      resizeCanvas();
+      if (typeof resizeSmokeFn === "function") resizeSmokeFn();
       return;
     }
 
@@ -432,9 +445,10 @@
   }
 
   /* --------------------------------------------------------------------------
-     4. CANVAS SIZING, DPR RESOLUTION & MOBILE BITMAP CACHE
+     4. CANVAS SIZING, DPR RESOLUTION & UNIFIED BITMAP CACHE
      -------------------------------------------------------------------------- */
   function clearFrameBitmaps() {
+    bitmapQueue = [];
     for (let i = 0; i < frameBitmaps.length; i++) {
       if (frameBitmaps[i]) {
         try {
@@ -447,8 +461,8 @@
   }
 
   function resizeCanvas() {
-    const mobile = isMobileLayout();
-    const dpr = Math.min(window.devicePixelRatio || 1, mobile ? 1.25 : 2.0);
+    const mobile = cachedMobile;
+    const dpr = Math.min(window.devicePixelRatio || 1, mobile ? 1.15 : 1.25);
     const rect = canvas.getBoundingClientRect();
     const w = Math.round(rect.width * dpr);
     const h = Math.round(rect.height * dpr);
@@ -456,11 +470,11 @@
     if (canvas.width !== w || canvas.height !== h) {
       canvas.width = w;
       canvas.height = h;
-      clearFrameBitmaps();
+      lastDrawnFrame = -1;
     }
 
     ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = mobile ? "medium" : "high";
+    ctx.imageSmoothingQuality = "medium";
     drawCurrentFrame(true);
   }
 
@@ -469,89 +483,104 @@
   }
 
   function evictDistantBitmaps(centerIdx) {
+    const cap = cachedMobile ? MAX_BITMAPS_MOBILE : MAX_BITMAPS_DESKTOP;
     let activeCount = 0;
     for (let i = 0; i < frameBitmaps.length; i++) {
       if (frameBitmaps[i]) activeCount++;
     }
-    if (activeCount <= MAX_MOBILE_BITMAPS) return;
+    if (activeCount <= cap) return;
 
-    // Close farthest non-keyframes first until under cap
-    while (activeCount > MAX_MOBILE_BITMAPS) {
-      let bestIdx = -1;
-      let bestDist = -1;
-      for (let i = 0; i < frameBitmaps.length; i++) {
-        if (!frameBitmaps[i] || isKeyframeIndex(i)) continue;
-        const dist = Math.abs(i - centerIdx);
-        if (dist > bestDist) {
-          bestDist = dist;
-          bestIdx = i;
+    // Close farthest non-keyframes first, then farthest keyframes if still over cap
+    for (let pass = 0; pass < 2 && activeCount > cap; pass++) {
+      while (activeCount > cap) {
+        let bestIdx = -1;
+        let bestDist = -1;
+        for (let i = 0; i < frameBitmaps.length; i++) {
+          if (!frameBitmaps[i]) continue;
+          if (pass === 0 && isKeyframeIndex(i)) continue;
+          const dist = Math.abs(i - centerIdx);
+          if (dist > bestDist) {
+            bestDist = dist;
+            bestIdx = i;
+          }
         }
+        if (bestIdx === -1) break;
+        try {
+          if (typeof frameBitmaps[bestIdx].close === "function") frameBitmaps[bestIdx].close();
+        } catch (e) {}
+        frameBitmaps[bestIdx] = null;
+        activeCount--;
       }
-      if (bestIdx === -1) break;
-      try {
-        if (typeof frameBitmaps[bestIdx].close === "function") frameBitmaps[bestIdx].close();
-      } catch (e) {}
-      frameBitmaps[bestIdx] = null;
-      activeCount--;
     }
   }
 
-  function decodeBitmapForFrame(index, centerIdx) {
-    if (!isMobileLayout() || typeof createImageBitmap !== "function") return;
+  function pumpBitmapQueue() {
+    if (typeof createImageBitmap !== "function") return;
+    while (activeBitmapDecodes < MAX_BITMAP_DECODES && bitmapQueue.length > 0) {
+      // Pick closest pending frame to the active scroll target first
+      let bestPos = 0;
+      let bestDist = Infinity;
+      for (let i = 0; i < bitmapQueue.length; i++) {
+        const d = Math.abs(bitmapQueue[i] - lastDesiredFrameIdx);
+        if (d < bestDist) {
+          bestDist = d;
+          bestPos = i;
+        }
+      }
+
+      const index = bitmapQueue.splice(bestPos, 1)[0];
+      const img = frames[index];
+      if (!img || !img.naturalWidth || frameBitmaps[index] || bitmapDecoding[index]) {
+        continue;
+      }
+
+      bitmapDecoding[index] = 1;
+      activeBitmapDecodes++;
+
+      createImageBitmap(img)
+        .then((bm) => {
+          bitmapDecoding[index] = 0;
+          if (!bm) return;
+          frameBitmaps[index] = bm;
+          evictDistantBitmaps(lastDesiredFrameIdx);
+          if (index === lastDesiredFrameIdx && (lastDrawnFrame !== index || lastDrawnIsPoster)) {
+            drawCurrentFrame(true);
+          }
+        })
+        .catch(() => {
+          bitmapDecoding[index] = 0;
+        })
+        .finally(() => {
+          activeBitmapDecodes = Math.max(0, activeBitmapDecodes - 1);
+          pumpBitmapQueue();
+        });
+    }
+  }
+
+  function queueBitmapDecode(index) {
+    if (typeof createImageBitmap !== "function") return;
     const img = frames[index];
     if (!img || !img.naturalWidth || frameBitmaps[index] || bitmapDecoding[index]) return;
-
-    const cw = canvas.width;
-    const ch = canvas.height;
-    if (!cw || !ch) return;
-
-    bitmapDecoding[index] = 1;
-    const imgW = img.naturalWidth;
-    const imgH = img.naturalHeight;
-    const coverScale = Math.max(cw / imgW, ch / imgH);
-    const zoomHeadroom = (index >= frameCount - 6) ? 1.2 : 1.0;
-    const destW = Math.min(imgW, Math.max(64, Math.round(imgW * coverScale * zoomHeadroom)));
-    const destH = Math.min(imgH, Math.max(64, Math.round(destW * (imgH / imgW))));
-
-    const finishDecode = (bm) => {
-      bitmapDecoding[index] = 0;
-      if (!bm) return;
-      frameBitmaps[index] = bm;
-      evictDistantBitmaps(centerIdx);
-      if (index === lastDesiredFrameIdx && lastDrawnFrame !== index) {
-        drawCurrentFrame(true);
-      }
-    };
-
-    try {
-      createImageBitmap(img, {
-        resizeWidth: destW,
-        resizeHeight: destH,
-        resizeQuality: "high"
-      })
-        .then(finishDecode)
-        .catch(() => {
-          createImageBitmap(img).then(finishDecode).catch(() => {
-            bitmapDecoding[index] = 0;
-          });
-        });
-    } catch (e) {
-      createImageBitmap(img).then(finishDecode).catch(() => {
-        bitmapDecoding[index] = 0;
-      });
+    if (!bitmapQueue.includes(index)) {
+      bitmapQueue.push(index);
     }
+    pumpBitmapQueue();
   }
 
   function ensureBitmapsAround(centerIdx) {
-    if (!isMobileLayout() || typeof createImageBitmap !== "function") return;
-    // Decode immediate center + lookahead/lookbehind window off main thread
-    const offsets = [0, 1, -1, 2, -2, 3, 4, -3, 5, 6, -4, 7, 8];
+    if (typeof createImageBitmap !== "function") return;
+    // Enqueue missing window strictly bounded via MAX_BITMAP_DECODES worker slots
+    bitmapQueue = bitmapQueue.filter(idx => Math.abs(idx - centerIdx) <= 14 && !frameBitmaps[idx]);
+    const offsets = [0, 1, -1, 2, -2, 3, -3, 4, -4, 5, 6, 7, 8];
     for (let i = 0; i < offsets.length; i++) {
       const idx = centerIdx + offsets[i];
-      if (idx >= 0 && idx < frameCount && frames[idx] && !frameBitmaps[idx]) {
-        decodeBitmapForFrame(idx, centerIdx);
+      if (idx >= 0 && idx < frameCount && frames[idx] && frames[idx].naturalWidth && !frameBitmaps[idx] && !bitmapDecoding[idx]) {
+        if (!bitmapQueue.includes(idx)) {
+          bitmapQueue.push(idx);
+        }
       }
     }
+    pumpBitmapQueue();
   }
 
   /* --------------------------------------------------------------------------
@@ -581,7 +610,7 @@
     const portrait = isPortraitMedia();
     const template = (portrait && cfg.FRAME_PATH_MOBILE) ? cfg.FRAME_PATH_MOBILE : (cfg.FRAME_PATH || "frames/frame_{n}.webp");
     const num = String(index + 1).padStart(3, "0");
-    return template.replace("{n}", num) + "?v=8";
+    return template.replace("{n}", num) + "?v=9";
   }
 
   function fetchSingleImage(src, timeoutMs) {
@@ -604,11 +633,7 @@
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        if (typeof img.decode === "function") {
-          img.decode().then(() => resolve(img)).catch(() => resolve(img));
-        } else {
-          resolve(img);
-        }
+        resolve(img);
       };
 
       img.onerror = (err) => {
@@ -645,10 +670,13 @@
           drawCurrentFrame(true);
         }
 
-        if (isMobileLayout() && Math.abs(index - lastDesiredFrameIdx) <= 10) {
-          decodeBitmapForFrame(index, lastDesiredFrameIdx);
+        if (Math.abs(index - lastDesiredFrameIdx) <= 14 || isKeyframeIndex(index)) {
+          queueBitmapDecode(index);
         }
-        if (Math.abs(index - lastDesiredFrameIdx) <= 4 && lastDrawnFrame !== lastDesiredFrameIdx) {
+        if (
+          (index === lastDesiredFrameIdx && (lastDrawnIsPoster || lastDrawnFrame !== index)) ||
+          (Math.abs(index - lastDesiredFrameIdx) <= 4 && lastDrawnFrame !== lastDesiredFrameIdx)
+        ) {
           drawCurrentFrame(true);
         }
         return img;
@@ -687,8 +715,11 @@
   }
 
   function boostFramePriority(centerIdx) {
-    if (frameStatus[centerIdx] === 2) return;
-    const windowOffsets = [0, 1, -1, 2, -2, 3, 4, 5, 6];
+    if (centerIdx === lastBoostedTarget || frameStatus[centerIdx] === 2) return;
+    lastBoostedTarget = centerIdx;
+    // Drop stale unstarted scrub requests far behind the user
+    urgentQueue = urgentQueue.filter(idx => Math.abs(idx - centerIdx) <= 10 && frameStatus[idx] === 0);
+    const windowOffsets = [0, 1, -1, 2, -2, 3, 4, -3, 5, 6];
     for (let i = windowOffsets.length - 1; i >= 0; i--) {
       const idx = centerIdx + windowOffsets[i];
       if (idx >= 0 && idx < frameCount) {
@@ -766,36 +797,43 @@
     runWorkerPool();
   }
 
-  async function preloadFrames() {
-    const minHoldPromise = new Promise(resolve => setTimeout(resolve, 550));
-    const profile = getNetworkProfile();
-
-    try {
-      await loadImageWithRetry(0, profile);
-      updatePreloader(45);
-      drawCurrentFrame(true);
-
-      // Load only 2–4 crisp early keyframes before opening UI so weak connections never hang
-      const earlyIndices = profile.tier === "slow" ? [8, frameCount - 1] : [4, 8, 16, frameCount - 1];
-      const earlyPromise = Promise.allSettled(
-        earlyIndices.filter(idx => idx > 0 && idx < frameCount).map(idx => loadImageWithRetry(idx, profile))
-      );
-      const graceCap = new Promise(resolve => setTimeout(resolve, profile.tier === "slow" ? 1800 : 1200));
-      await Promise.race([earlyPromise, graceCap]);
-      updatePreloader(100);
-    } catch (e) {
-      enableProceduralFallback();
-      updatePreloader(100);
-    }
-
-    await minHoldPromise;
+  function unlockInitialUI() {
+    if (uiUnlocked) return;
+    uiUnlocked = true;
+    updatePreloader(100);
     drawCurrentFrame(true);
-
-    preloader.classList.add("loaded");
+    if (preloader) preloader.classList.add("loaded");
     document.body.classList.remove("loading-locked");
     startRafLoop();
+  }
 
-    // Stream remaining frames across whole timeline via keyframe priority worker pool
+  function initPosterAndReveal() {
+    const posters = window.AURA_POSTERS;
+    const posterSrc = posters ? (isPortraitMedia() ? posters.mobile : posters.desktop) : null;
+    if (!posterSrc) {
+      unlockInitialUI();
+      return;
+    }
+
+    const img = new Image();
+    img.onload = () => {
+      posterImg = img;
+      unlockInitialUI();
+    };
+    img.onerror = () => {
+      unlockInitialUI();
+    };
+    img.src = posterSrc;
+
+    // Never hold preloader longer than one frame if browser delays data-URI onload
+    setTimeout(unlockInitialUI, 60);
+  }
+
+  function preloadFrames() {
+    initPosterAndReveal();
+
+    // Non-blocking HD background streaming: Frame 0 first, then keyframes & fill
+    urgentQueue = [0];
     stagedQueue = buildKeyframePriorityList();
     runWorkerPool();
   }
@@ -905,10 +943,9 @@
      7. CANVAS FRAME DRAWING (Cover Fit, Nearest Keyframe & Bitmap Blit)
      -------------------------------------------------------------------------- */
   function findNearestLoadedSource(targetIdx) {
-    const mobile = isMobileLayout();
     const hasReady = (k) => {
       if (k < 0 || k >= frameCount) return false;
-      if (mobile && frameBitmaps[k]) return true;
+      if (frameBitmaps[k]) return true;
       return Boolean(frames[k] && frames[k].naturalWidth);
     };
 
@@ -927,13 +964,19 @@
         }
       }
     }
-    if (matchedIdx === -1) return null;
-    const source = (mobile && frameBitmaps[matchedIdx]) ? frameBitmaps[matchedIdx] : frames[matchedIdx];
-    return { idx: matchedIdx, source };
+    if (matchedIdx === -1) {
+      if (posterImg && posterImg.naturalWidth) {
+        return { idx: 0, source: posterImg, isPoster: true };
+      }
+      return null;
+    }
+    const source = frameBitmaps[matchedIdx] || frames[matchedIdx];
+    return { idx: matchedIdx, source, isPoster: false };
   }
 
   function drawCurrentFrame(force = false) {
     const targetIdx = Math.max(0, Math.min(Math.round(currentFrameFloat), frameCount - 1));
+    const targetChanged = targetIdx !== lastDesiredFrameIdx;
     lastDesiredFrameIdx = targetIdx;
 
     const cw = canvas.width;
@@ -946,13 +989,16 @@
     if (isProceduralFallback) {
       renderProceduralScene(cw, ch, p);
       lastDrawnFrame = targetIdx;
+      lastDrawnIsPoster = false;
       return;
     }
 
-    if (frameStatus[targetIdx] !== 2) {
+    if (frameStatus[targetIdx] !== 2 && targetIdx !== lastBoostedTarget) {
       boostFramePriority(targetIdx);
     }
-    ensureBitmapsAround(targetIdx);
+    if (targetChanged || !frameBitmaps[targetIdx]) {
+      ensureBitmapsAround(targetIdx);
+    }
 
     const resolved = findNearestLoadedSource(targetIdx);
     if (!resolved || !resolved.source) {
@@ -960,7 +1006,7 @@
       return;
     }
 
-    if (!force && resolved.idx === lastDrawnFrame) {
+    if (!force && resolved.idx === lastDrawnFrame && (!lastDrawnIsPoster || resolved.isPoster)) {
       return;
     }
 
@@ -981,6 +1027,7 @@
       }
       ctx.drawImage(src, dx, dy, dw, dh);
       lastDrawnFrame = resolved.idx;
+      lastDrawnIsPoster = Boolean(resolved.isPoster);
     } else {
       renderProceduralScene(cw, ch, p);
     }
@@ -1872,6 +1919,11 @@
       syncStageLayout(false);
       onScroll();
     }, { passive: true });
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", () => {
+        syncStageLayout(false);
+      }, { passive: true });
+    }
     window.addEventListener("orientationchange", () => {
       setTimeout(() => {
         syncStageLayout(true);

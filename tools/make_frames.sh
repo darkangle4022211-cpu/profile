@@ -98,19 +98,19 @@ echo "Step 2/3: Cleaning existing frame sequences..."
 rm -f frames/frame_*.webp frames-m/frame_*.webp
 mkdir -p frames frames-m
 
-# Step 3: Export Desktop Frames with high-fidelity 1080p WebP
+# Step 3: Export Desktop Frames with compact crisp 720p WebP
 echo ""
-echo "Step 3/3 (a): Generating desktop frames (1920x1080 HD WebP, quality 90)..."
+echo "Step 3/3 (a): Generating desktop frames (1280x720 WebP, quality 80)..."
 ffmpeg -y -i "$FINAL_VIDEO" \
-  -vf "scale=1920:-2" \
-  -c:v libwebp -quality 90 \
+  -vf "scale=1280:-2" \
+  -c:v libwebp -quality 80 -preset picture -compression_level 6 \
   frames/frame_%03d.webp
 
-# Step 3 (b): Export Mobile Frames (1080px portrait crop, quality 88)
-echo "Step 3/3 (b): Generating mobile frames (1080px portrait WebP, quality 88)..."
+# Step 3 (b): Export Mobile Frames (576px portrait crop, quality 78)
+echo "Step 3/3 (b): Generating mobile frames (576px portrait WebP, quality 78)..."
 ffmpeg -y -i "$FINAL_VIDEO" \
-  -vf "crop=ih*9/16:ih,scale=1080:-2" \
-  -c:v libwebp -quality 88 \
+  -vf "crop=ih*9/16:ih,scale=576:-2" \
+  -c:v libwebp -quality 78 -preset picture -compression_level 6 \
   frames-m/frame_%03d.webp
 
 # Count output frames

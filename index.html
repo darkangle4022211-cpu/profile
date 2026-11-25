@@ -25,16 +25,16 @@
   <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Sans:wght@400;500;600&display=swap"></noscript>
 
   <!-- Preload HD Frame 0 for fastest upgrade over instant starter poster -->
-  <link rel="preload" as="image" href="frames/frame_001.webp?v=9" media="(min-width: 769px)">
-  <link rel="preload" as="image" href="frames-m/frame_001.webp?v=9" media="(max-width: 768px)">
+  <link rel="preload" as="image" href="frames/frame_001.webp?v=10" media="(min-width: 769px)">
+  <link rel="preload" as="image" href="frames-m/frame_001.webp?v=10" media="(max-width: 768px)">
 
   <!-- Stylesheet -->
-  <link rel="stylesheet" href="css/style.css?v=22">
+  <link rel="stylesheet" href="css/style.css?v=23">
 </head>
 <body class="loading-locked">
 
-  <!-- Fixed Film Grain Overlay -->
-  <canvas id="grain-canvas" class="grain-animated" width="256" height="256" aria-hidden="true"></canvas>
+  <!-- Static Subtle Film Grain Overlay (zero animated blend compositing overhead) -->
+  <canvas id="grain-canvas" width="256" height="256" aria-hidden="true"></canvas>
 
   <!-- Preloader Screen -->
   <aside id="preloader" aria-label="Loading experience">
@@ -231,12 +231,12 @@
   </div>
 
   <!-- Optional frames manifest written by tools/make_frames script -->
-  <script src="frames/manifest.js?v=22" onerror="this.onerror=null;"></script>
+  <script src="frames/manifest.js?v=23" onerror="this.onerror=null;"></script>
   <!-- Inline Frame 0 starter poster for instant visual render -->
-  <script src="js/poster.js?v=22" onerror="this.onerror=null;"></script>
+  <script src="js/poster.js?v=23" onerror="this.onerror=null;"></script>
   <!-- Personal Configuration & Content -->
-  <script src="js/config.js?v=22"></script>
+  <script src="js/config.js?v=23"></script>
   <!-- Main Application Logic -->
-  <script src="js/main.js?v=22"></script>
+  <script src="js/main.js?v=23"></script>
 </body>
 </html>

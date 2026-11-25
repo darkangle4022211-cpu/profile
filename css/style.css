@@ -62,33 +62,17 @@ body.loading-locked {
 /* --- Film Grain Overlay --- */
 #grain-canvas {
   position: fixed;
-  inset: -50%;
-  width: 200%;
-  height: 200%;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
   z-index: 999;
-  opacity: 0.055;
-  mix-blend-mode: screen;
-}
-
-@keyframes filmNoise {
-  0% { transform: translate(0, 0); }
-  16% { transform: translate(-3%, -2%); }
-  33% { transform: translate(2%, 3%); }
-  50% { transform: translate(-2%, 4%); }
-  66% { transform: translate(4%, -1%); }
-  83% { transform: translate(-1%, -3%); }
-  100% { transform: translate(0, 0); }
-}
-
-.grain-animated {
-  animation: filmNoise 0.8s steps(6) infinite;
+  opacity: 0.032;
 }
 
 @media (max-width: 768px), (pointer: coarse) {
   #grain-canvas {
     display: none !important;
-    animation: none !important;
   }
 }
 
@@ -102,7 +86,7 @@ body.loading-locked {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  transition: opacity 160ms var(--ease), visibility 160ms var(--ease);
+  transition: opacity 220ms var(--ease), visibility 220ms var(--ease);
 }
 
 #preloader.loaded {
@@ -144,7 +128,6 @@ body.loading-locked {
   width: 0%;
   background-color: var(--accent);
   box-shadow: 0 0 10px var(--accent-glow);
-  transition: width 150ms ease-out;
 }
 
 .preloader-status {
@@ -190,7 +173,7 @@ body.loading-locked {
   left: 0;
   width: 100%;
   height: 100vh;
-  height: 100dvh;
+  height: 100lvh;
   overflow: hidden;
   background-color: var(--bg);
 }
@@ -207,13 +190,15 @@ body.loading-locked {
   z-index: 1;
 }
 
-/* Full bleed canvas */
+/* Full bleed canvas scaled natively on GPU */
 #hero-canvas {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
+  object-fit: cover;
+  object-position: center;
   display: block;
   mix-blend-mode: normal;
   transform-origin: 50% 38%;
@@ -272,16 +257,19 @@ body.loading-locked {
   flex-direction: column;
   justify-content: center;
   padding: clamp(2rem, 6vw, 6rem);
+  transform: translateZ(0);
+  contain: layout style;
 }
 
 /* Individual narrative beats — clean transitions, ZERO blur on video */
 .beat {
   position: absolute;
   opacity: 0;
+  visibility: hidden;
   transform: translateY(14px);
   transition: opacity var(--duration-base) var(--ease),
-              transform var(--duration-base) var(--ease);
-  will-change: opacity, transform;
+              transform var(--duration-base) var(--ease),
+              visibility 0s linear var(--duration-base);
   pointer-events: none;
   background: none !important;
   border: none !important;
@@ -293,7 +281,11 @@ body.loading-locked {
 
 .beat.active {
   opacity: 1;
+  visibility: visible;
   transform: translateY(0);
+  transition: opacity var(--duration-base) var(--ease),
+              transform var(--duration-base) var(--ease),
+              visibility 0s;
   pointer-events: auto;
 }
 
@@ -324,10 +316,8 @@ body.loading-locked {
   cursor: default;
   word-break: normal;
   overflow-wrap: break-word;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.98),
-               0 4px 16px rgba(0, 0, 0, 0.98),
-               0 0 35px rgba(0, 0, 0, 0.95),
-               0 0 70px rgba(0, 0, 0, 0.9);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.98),
+               0 0 28px rgba(0, 0, 0, 0.88);
 }
 
 .hero-word {
@@ -341,7 +331,6 @@ body.loading-locked {
               color 200ms var(--ease),
               text-shadow 200ms var(--ease);
   cursor: default;
-  will-change: transform;
 }
 
 .hero-char:hover {
@@ -456,10 +445,11 @@ body.loading-locked {
   position: absolute;
   max-width: 480px;
   opacity: 0;
+  visibility: hidden;
   transform: translateY(16px);
   transition: opacity var(--duration-base) var(--ease),
-              transform var(--duration-base) var(--ease);
-  will-change: opacity, transform;
+              transform var(--duration-base) var(--ease),
+              visibility 0s linear var(--duration-base);
   pointer-events: none;
   background: none !important;
   border: none !important;
@@ -471,7 +461,11 @@ body.loading-locked {
 
 .beat-quote.active {
   opacity: 1;
+  visibility: visible;
   transform: translateY(0);
+  transition: opacity var(--duration-base) var(--ease),
+              transform var(--duration-base) var(--ease),
+              visibility 0s;
   pointer-events: auto;
 }
 
@@ -517,9 +511,8 @@ body.loading-locked {
   font-weight: 700;
   line-height: 1.15;
   color: #FFFFFF;
-  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.98),
-               0 6px 25px rgba(0, 0, 0, 0.98),
-               0 0 45px rgba(0, 0, 0, 0.95);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.98),
+               0 0 28px rgba(0, 0, 0, 0.88);
   margin: 0;
   cursor: default;
 }
@@ -528,18 +521,16 @@ body.loading-locked {
   color: #FFB84D;
   font-style: normal;
   font-weight: 700;
-  text-shadow: 0 0 30px rgba(232, 163, 61, 0.9),
-               0 0 5px #FFE2A6,
-               0 3px 8px rgba(0, 0, 0, 0.98);
+  text-shadow: 0 0 22px rgba(232, 163, 61, 0.85),
+               0 2px 8px rgba(0, 0, 0, 0.98);
   transition: text-shadow var(--duration-fast) var(--ease),
               color var(--duration-fast) var(--ease);
 }
 
 .beat-quote:hover .quote-gold {
   color: #FFD480;
-  text-shadow: 0 0 40px rgba(232, 163, 61, 1),
-               0 0 6px #FFFFFF,
-               0 3px 8px rgba(0, 0, 0, 0.98);
+  text-shadow: 0 0 28px rgba(232, 163, 61, 1),
+               0 2px 8px rgba(0, 0, 0, 0.98);
 }
 
 /* Final Punchline (Beat 5) — NO BOX */
@@ -549,9 +540,10 @@ body.loading-locked {
   transform: translateY(calc(-50% + 14px));
   max-width: 540px;
   opacity: 0;
+  visibility: hidden;
   transition: opacity var(--duration-base) var(--ease),
-              transform var(--duration-base) var(--ease);
-  will-change: opacity, transform;
+              transform var(--duration-base) var(--ease),
+              visibility 0s linear var(--duration-base);
   pointer-events: none;
   background: none !important;
   border: none !important;
@@ -563,7 +555,11 @@ body.loading-locked {
 
 .beat-final.active {
   opacity: 1;
+  visibility: visible;
   transform: translateY(-50%);
+  transition: opacity var(--duration-base) var(--ease),
+              transform var(--duration-base) var(--ease),
+              visibility 0s;
   pointer-events: auto;
 }
 
@@ -617,7 +613,7 @@ body.loading-locked {
   
   .beat-intro {
     top: auto;
-    bottom: 8%;
+    bottom: calc(8% + max(0px, calc(100lvh - 100svh)));
     left: 1.5rem;
     right: 1.5rem;
     transform: translateY(12px);
@@ -633,7 +629,7 @@ body.loading-locked {
   
   .beat-quote {
     top: auto !important;
-    bottom: 10% !important;
+    bottom: calc(10% + max(0px, calc(100lvh - 100svh))) !important;
     left: 1.5rem !important;
     right: 1.5rem !important;
     max-width: none !important;
@@ -646,7 +642,7 @@ body.loading-locked {
   
   .beat-final {
     top: auto !important;
-    bottom: 10% !important;
+    bottom: calc(10% + max(0px, calc(100lvh - 100svh))) !important;
     left: 1.5rem !important;
     right: 1.5rem !important;
     max-width: none !important;
@@ -1066,7 +1062,7 @@ body.loading-locked {
 /* Mobile 3D Ring Cards & Controls Optimization */
 @media (max-width: 768px), (max-aspect-ratio: 1/1) {
   .ring-layer {
-    padding: 0.7rem 0.95rem;
+    padding: 0.7rem 0.95rem calc(0.7rem + max(0px, calc(100lvh - 100svh)));
     touch-action: pan-y;
   }
 
@@ -1791,7 +1787,6 @@ body.loading-locked {
   border-color: rgba(232, 163, 61, 0.75);
   background-color: rgba(232, 163, 61, 0.06);
   box-shadow: 0 0 20px rgba(232, 163, 61, 0.25);
-  backdrop-filter: blur(1px);
 }
 
 /* Hovering over links / buttons */

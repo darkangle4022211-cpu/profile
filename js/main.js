@@ -44,9 +44,8 @@
   const frameStatus = new Uint8Array(frameCount); // 0=idle, 1=loading, 2=loaded, 3=failed
   const bitmapDecoding = new Uint8Array(frameCount);
   const KEYFRAME_STEP = 8;
-  const MAX_BITMAP_DECODES = 2;
-  const MAX_BITMAPS_DESKTOP = 64;
-  const MAX_BITMAPS_MOBILE = 52;
+  const MAX_BITMAPS_DESKTOP = 48;
+  const MAX_BITMAPS_MOBILE = 20;
   let bitmapQueue = [];
   let activeBitmapDecodes = 0;
   let posterImg = null;
@@ -54,6 +53,8 @@
   let lastDrawnIsPoster = false;
   let lastBoostedTarget = -1;
   let cachedMobile = false;
+  let lastBeatActiveStates = [];
+  let lastBeat5Key = "";
   let framesLoadedCount = 0;
   let isProceduralFallback = false;
   let targetS = 0;
@@ -152,12 +153,11 @@
 
   function syncStageLayout(force = false) {
     const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    // Ignore minor vertical browser chrome (address/bottom bar) show/hide changes for scroll budget
-    // so total scroll length stays steady, while still resizing the canvas to fill 100dvh cleanly
+    const pinEl = pinWrap ? pinWrap.firstElementChild : null;
+    const vh = (pinEl && pinEl.clientHeight) || window.innerHeight;
+    // Ignore minor vertical browser chrome (address/bottom bar) show/hide changes on mobile
+    // since #pin uses 100lvh and #hero-canvas covers via CSS object-fit without resizing
     if (!force && cachedVw === vw && Math.abs(vh - cachedVh) <= 140) {
-      resizeCanvas();
-      if (typeof resizeSmokeFn === "function") resizeSmokeFn();
       return;
     }
 
@@ -460,12 +460,17 @@
     }
   }
 
+  function getMaxBitmapDecodes() {
+    return cachedMobile ? 1 : 2;
+  }
+
   function resizeCanvas() {
-    const mobile = cachedMobile;
-    const dpr = Math.min(window.devicePixelRatio || 1, mobile ? 1.15 : 1.25);
-    const rect = canvas.getBoundingClientRect();
-    const w = Math.round(rect.width * dpr);
-    const h = Math.round(rect.height * dpr);
+    // Match backing canvas strictly to native compact frame dimensions (1:1 drawImage)
+    // while CSS #hero-canvas { width: 100%; height: 100%; object-fit: cover; } handles GPU scaling
+    const portrait = isPortraitMedia();
+    const loaded0 = frames[0] && frames[0].naturalWidth ? frames[0] : null;
+    const w = loaded0 ? loaded0.naturalWidth : (portrait ? 480 : 960);
+    const h = loaded0 ? loaded0.naturalHeight : (portrait ? 854 : 540);
 
     if (canvas.width !== w || canvas.height !== h) {
       canvas.width = w;
@@ -516,7 +521,8 @@
 
   function pumpBitmapQueue() {
     if (typeof createImageBitmap !== "function") return;
-    while (activeBitmapDecodes < MAX_BITMAP_DECODES && bitmapQueue.length > 0) {
+    const maxDecodes = getMaxBitmapDecodes();
+    while (activeBitmapDecodes < maxDecodes && bitmapQueue.length > 0) {
       // Pick closest pending frame to the active scroll target first
       let bestPos = 0;
       let bestDist = Infinity;
@@ -610,7 +616,7 @@
     const portrait = isPortraitMedia();
     const template = (portrait && cfg.FRAME_PATH_MOBILE) ? cfg.FRAME_PATH_MOBILE : (cfg.FRAME_PATH || "frames/frame_{n}.webp");
     const num = String(index + 1).padStart(3, "0");
-    return template.replace("{n}", num) + "?v=9";
+    return template.replace("{n}", num) + "?v=10";
   }
 
   function fetchSingleImage(src, timeoutMs) {
@@ -807,26 +813,49 @@
     startRafLoop();
   }
 
+  function runGradualPreloaderSweep() {
+    const startAt = performance.now();
+    const rampMs = 440;
+    const hardMaxMs = 680;
+    let lastShown = -1;
+
+    const tick = (now) => {
+      if (uiUnlocked) return;
+      const elapsed = now - startAt;
+      const frame0Ready = frameStatus[0] === 2 || Boolean(posterImg && posterImg.naturalWidth);
+      const linearT = Math.min(elapsed / rampMs, 1);
+      // Ease out slightly so percentage climbs smoothly 0 -> 100 integer by integer
+      let pct = Math.floor(linearT * 99);
+      if (linearT >= 1 && (frame0Ready || elapsed >= hardMaxMs)) {
+        pct = 100;
+      }
+      if (pct !== lastShown) {
+        lastShown = pct;
+        updatePreloader(pct);
+      }
+      if (pct >= 100) {
+        unlockInitialUI();
+        return;
+      }
+      requestAnimationFrame(tick);
+    };
+
+    requestAnimationFrame(tick);
+  }
+
   function initPosterAndReveal() {
     const posters = window.AURA_POSTERS;
     const posterSrc = posters ? (isPortraitMedia() ? posters.mobile : posters.desktop) : null;
-    if (!posterSrc) {
-      unlockInitialUI();
-      return;
+    if (posterSrc) {
+      const img = new Image();
+      img.onload = () => {
+        posterImg = img;
+        drawCurrentFrame(true);
+      };
+      img.src = posterSrc;
     }
 
-    const img = new Image();
-    img.onload = () => {
-      posterImg = img;
-      unlockInitialUI();
-    };
-    img.onerror = () => {
-      unlockInitialUI();
-    };
-    img.src = posterSrc;
-
-    // Never hold preloader longer than one frame if browser delays data-URI onload
-    setTimeout(unlockInitialUI, 60);
+    runGradualPreloaderSweep();
   }
 
   function preloadFrames() {
@@ -1071,8 +1100,8 @@
 
     const { mobile, heroScroll, transition, ringScroll, exit } = getStageMetrics();
 
-    // Mobile-responsive scroll smoothing (snappier tracking for native touch inertia)
-    const smoothFactor = mobile ? 0.24 : 0.11;
+    // Snappy frame-coupled scroll smoothing (responsive on wheel and touch)
+    const smoothFactor = mobile ? 0.34 : 0.22;
     const decay = 1 - Math.pow(1 - smoothFactor, dt / 16.67);
     smoothedS += (targetS - smoothedS) * decay;
 
@@ -1089,7 +1118,10 @@
     // Phase (a) & (b): Hero video frames, narrative beats, and slow push-in
     const heroHidden = q >= 0.99;
     if (heroLayerEl) {
-      heroLayerEl.style.visibility = heroHidden ? "hidden" : "visible";
+      const targetVis = heroHidden ? "hidden" : "visible";
+      if (heroLayerEl.style.visibility !== targetVis) {
+        heroLayerEl.style.visibility = targetVis;
+      }
     }
     if (!heroHidden) {
       currentFrameFloat = progressToFrame(p);
@@ -1097,9 +1129,10 @@
       updateNarrativeBeats(p, q);
       if (canvas) {
         const heroScale = 1 + q * 0.35;
-        canvas.style.transformOrigin = "50% 38%";
-        canvas.style.transform = `scale3d(${heroScale.toFixed(4)}, ${heroScale.toFixed(4)}, 1)`;
-        canvas.style.opacity = Math.max(0, 1 - q * 1.15).toFixed(3);
+        const targetTf = `scale3d(${heroScale.toFixed(4)}, ${heroScale.toFixed(4)}, 1)`;
+        const targetOp = Math.max(0, 1 - q * 1.15).toFixed(3);
+        if (canvas.style.transform !== targetTf) canvas.style.transform = targetTf;
+        if (canvas.style.opacity !== targetOp) canvas.style.opacity = targetOp;
       }
     } else if (canvas && canvas.style.opacity !== "0") {
       canvas.style.opacity = "0";
@@ -1135,25 +1168,24 @@
       const beat = beats[i];
       if (!beat.el) continue;
       const isActive = (q === 0) && (p >= beat.min && p <= beat.max);
-      beat.el.classList.toggle("active", isActive);
+      if (lastBeatActiveStates[i] !== isActive) {
+        lastBeatActiveStates[i] = isActive;
+        beat.el.classList.toggle("active", isActive);
+      }
     }
 
     // Beat 5 (The Creed): active from 0.80, dissolves with push-in (q) with NO translateY
     if (beat5El) {
-      if (p >= 0.80) {
-        beat5El.classList.add("active");
-        if (q > 0) {
-          const beat5Alpha = Math.max(0, 1 - q * 2.5);
-          beat5El.style.opacity = beat5Alpha.toFixed(3);
-          beat5El.style.pointerEvents = (beat5Alpha > 0.1) ? "auto" : "none";
-        } else {
-          beat5El.style.opacity = "1";
-          beat5El.style.pointerEvents = "auto";
-        }
-      } else {
-        beat5El.classList.remove("active");
-        beat5El.style.opacity = "0";
-        beat5El.style.pointerEvents = "none";
+      const active = p >= 0.80;
+      const beat5Alpha = active ? (q > 0 ? Math.max(0, 1 - q * 2.5) : 1) : 0;
+      const opStr = beat5Alpha.toFixed(3);
+      const pe = (active && beat5Alpha > 0.1) ? "auto" : "none";
+      const key = `${active ? 1 : 0}:${opStr}:${pe}`;
+      if (key !== lastBeat5Key) {
+        lastBeat5Key = key;
+        beat5El.classList.toggle("active", active);
+        beat5El.style.opacity = active ? opStr : "";
+        beat5El.style.pointerEvents = pe;
       }
     }
   }
@@ -1164,27 +1196,33 @@
   function update3DRing(q, r, x) {
     if (!ringLayerEl || !projectRingEl || !ringCardEls.length) return;
 
-    // Ring layer opacity & GPU visibility culling
+    // Ring layer opacity & GPU subtree culling (display: none when inactive saves ~16ms/frame + VRAM)
     const ringOpacity = (q > 0) ? Math.min(1, q * 1.35) * Math.max(0, 1 - x * 1.35) : 0;
     const isInteractive = (q >= 0.75 && x < 0.25);
 
     if (ringOpacity <= 0.002) {
-      if (ringLayerEl.style.visibility !== "hidden") {
+      if (ringLayerEl.style.display !== "none") {
         ringLayerEl.style.opacity = "0";
         ringLayerEl.style.visibility = "hidden";
+        ringLayerEl.style.display = "none";
         ringLayerEl.style.pointerEvents = "none";
       }
       return;
     }
 
+    if (ringLayerEl.style.display !== "flex") {
+      ringLayerEl.style.display = "flex";
+    }
     if (ringLayerEl.style.visibility !== "visible") {
       ringLayerEl.style.visibility = "visible";
     }
-    ringLayerEl.style.opacity = ringOpacity.toFixed(3);
-    ringLayerEl.style.pointerEvents = isInteractive ? "auto" : "none";
+    const opStr = ringOpacity.toFixed(3);
+    if (ringLayerEl.style.opacity !== opStr) ringLayerEl.style.opacity = opStr;
+    const peStr = isInteractive ? "auto" : "none";
+    if (ringLayerEl.style.pointerEvents !== peStr) ringLayerEl.style.pointerEvents = peStr;
 
     // Depth emergence & exit push
-    const mobile = isMobileLayout();
+    const mobile = cachedMobile;
     const exitPush = mobile ? 180 : 280;
     const depthZ = (1 - q) * -520 + x * exitPush;
 
@@ -1645,10 +1683,15 @@
       smokeRafId = requestAnimationFrame(smokeTick);
     }
 
-    if (initWebGLContext()) {
-      resizeSmokeCanvas();
-      if (reducedMotion) {
-        drawSmokeFrame();
+    let webglInitialized = false;
+    function ensureWebGLInitialized() {
+      if (webglInitialized || useFallback) return;
+      webglInitialized = true;
+      if (initWebGLContext()) {
+        resizeSmokeCanvas();
+        if (reducedMotion) {
+          drawSmokeFrame();
+        }
       }
     }
 
@@ -1695,6 +1738,15 @@
     });
 
     if ("IntersectionObserver" in window) {
+      // Lazy-initialize WebGL only when approaching #finale (keeps mobile hero VRAM minimal)
+      const warmObserver = new IntersectionObserver((entries) => {
+        if (entries.some(e => e.isIntersecting)) {
+          ensureWebGLInitialized();
+          warmObserver.disconnect();
+        }
+      }, { rootMargin: "900px 0px" });
+      warmObserver.observe(finaleEl);
+
       const finaleObserver = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
           isFinaleInView = entry.isIntersecting;
@@ -1703,6 +1755,7 @@
             closingLineEl.classList.add("is-visible");
           }
           if (isFinaleInView) {
+            ensureWebGLInitialized();
             startSmokeRaf();
           } else {
             stopSmokeRaf();
@@ -1711,6 +1764,7 @@
       }, { threshold: 0 });
       finaleObserver.observe(finaleEl);
     } else {
+      ensureWebGLInitialized();
       isFinaleInView = true;
       finaleEl.classList.add("in-view");
       if (closingLineEl) closingLineEl.classList.add("is-visible");
@@ -1895,7 +1949,7 @@
         location.hostname === "localhost" ||
         location.hostname === "127.0.0.1")
     ) {
-      navigator.serviceWorker.register("sw.js").catch(() => {});
+      navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(() => {});
     }
   }
 

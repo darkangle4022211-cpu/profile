@@ -12,6 +12,7 @@ window.AURA_CONFIG = {
   FRAME_COUNT: 120,
   FRAME_PATH: "frames/frame_{n}.webp", // 3-digit zero-padded (001, 002, ...)
   FRAME_PATH_MOBILE: "frames-m/frame_{n}.webp",
+  FRAME_BLEND: true,
   FRAME_MAP: [
     [0.00, 0],
     [0.75, 70],

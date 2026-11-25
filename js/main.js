@@ -18,6 +18,12 @@
     [1.00, 119]
   ];
 
+  // Manifest dimensions & frame count overrides
+  let sourceDesktopW = 1600;
+  let sourceDesktopH = 900;
+  let sourceMobileW = 606;
+  let sourceMobileH = 1080;
+
   if (window.AURA_MANIFEST) {
     if (typeof window.AURA_MANIFEST.count === "number" && window.AURA_MANIFEST.count > 0) {
       frameCount = window.AURA_MANIFEST.count;
@@ -26,6 +32,14 @@
       frameMap[1] = [0.75, window.AURA_MANIFEST.cigarStartFrame];
       frameMap[2] = [0.92, frameCount - 1];
       frameMap[3] = [1.00, frameCount - 1];
+    }
+    if (window.AURA_MANIFEST.width && window.AURA_MANIFEST.height) {
+      sourceDesktopW = window.AURA_MANIFEST.width;
+      sourceDesktopH = window.AURA_MANIFEST.height;
+    }
+    if (window.AURA_MANIFEST.mobileWidth && window.AURA_MANIFEST.mobileHeight) {
+      sourceMobileW = window.AURA_MANIFEST.mobileWidth;
+      sourceMobileH = window.AURA_MANIFEST.mobileHeight;
     }
   }
 
@@ -38,21 +52,42 @@
   const preloaderStatus = document.getElementById("preloader-status");
   const devNotice = document.getElementById("dev-notice");
 
-  // State Variables
-  const frames = new Array(frameCount);
+  // State Variables — Compressed Blobs + Rolling ImageBitmap Window
+  const supportsBitmap = typeof createImageBitmap === "function";
+  const frameBlobs = new Array(frameCount);
+  const frames = new Array(frameCount); // HTMLImageElement fallback when !supportsBitmap
   const frameBitmaps = new Array(frameCount);
+  const frameBitmapKey = new Array(frameCount);
   const frameStatus = new Uint8Array(frameCount); // 0=idle, 1=loading, 2=loaded, 3=failed
+  const frameExpectedBytes = new Float64Array(frameCount);
+  const frameReceivedBytes = new Float64Array(frameCount);
   const bitmapDecoding = new Uint8Array(frameCount);
-  const KEYFRAME_STEP = 8;
-  const MAX_BITMAPS_DESKTOP = 48;
-  const MAX_BITMAPS_MOBILE = 20;
+
+  const QUALITY_TIERS = {
+    HIGH: { name: "HIGH", scale: 1.0, window: 20, blend: true, prefetch: 1 },
+    MEDIUM: { name: "MEDIUM", scale: 0.85, window: 14, blend: true, prefetch: 1 },
+    LOW: { name: "LOW", scale: 0.70, window: 10, blend: false, prefetch: 1 }
+  };
+
+  let baseTier = "HIGH";
+  let currentTier = "HIGH";
+  let adaptiveScale = 1.0;
+  let effectiveWindow = 20;
+  let currentBitmapKey = "";
+  let scrollDirection = 1;
+  let prevFrameFloat = 0;
   let bitmapQueue = [];
   let activeBitmapDecodes = 0;
   let posterImg = null;
   let uiUnlocked = false;
-  let lastDrawnIsPoster = false;
   let lastBoostedTarget = -1;
   let cachedMobile = false;
+  let cachedCssW = 0;
+  let cachedCssH = 0;
+  let cachedFinaleTop = 0;
+  let cachedFinaleHeight = 600;
+  let latestScrollY = window.scrollY || 0;
+  let lastRenderKey = "";
   let lastBeatActiveStates = [];
   let lastBeat5Key = "";
   let framesLoadedCount = 0;
@@ -61,9 +96,11 @@
   let smoothedS = 0;
   let currentFrameFloat = 0;
   let lastDesiredFrameIdx = 0;
-  let lastDrawnFrame = -1;
   let isRafRunning = false;
   let lastRafTime = performance.now();
+  let emaFrameMs = 16.7;
+  let slowAccumMs = 0;
+  let fastAccumMs = 0;
   let emberGlow = 0;
   let fogOffset = 0;
 
@@ -74,6 +111,17 @@
   let cachedMetrics = null;
   let cachedRadius = 420;
   let lastActiveCardIdx = -1;
+
+  // Performance HUD (?perf=1) & Scroll Telemetry
+  const isPerfEnabled = new URLSearchParams(window.location.search).get("perf") === "1";
+  let perfHudEl = null;
+  const perfDeltas = [];
+  let perfLastDrawMs = 0;
+  let perfDrawSumMs = 0;
+  let perfDrawCount = 0;
+  let perfCanvasScale = 1;
+  let perfTierLabel = "HIGH";
+  let perfHudLastPaint = 0;
   let heroLayerEl = null;
   let ringLayerEl = null;
   let projectRingEl = null;
@@ -155,19 +203,31 @@
     const vw = window.innerWidth;
     const pinEl = pinWrap ? pinWrap.firstElementChild : null;
     const vh = (pinEl && pinEl.clientHeight) || window.innerHeight;
-    // Ignore minor vertical browser chrome (address/bottom bar) show/hide changes on mobile
-    // since #pin uses 100lvh and #hero-canvas covers via CSS object-fit without resizing
-    if (!force && cachedVw === vw && Math.abs(vh - cachedVh) <= 140) {
+    const mobile = isMobileLayout();
+
+    // On mobile ignore height-only resizes (address/bottom bar collapsing)
+    if (!force && mobile && Math.abs(vw - cachedVw) < 2 && cachedMetrics) {
+      return;
+    }
+    if (!force && Math.abs(vw - cachedVw) < 2 && Math.abs(vh - cachedVh) <= 4 && cachedMetrics) {
       return;
     }
 
     cachedVw = vw;
     cachedVh = vh;
+    cachedCssW = (canvas && canvas.clientWidth) || vw;
+    cachedCssH = (canvas && canvas.clientHeight) || vh;
     cachedMetrics = computeStageMetrics();
 
     if (pinWrap) {
       pinWrap.style.height = `${Math.round(cachedMetrics.wrapHeight)}px`;
       cachedWrapTop = pinWrap.offsetTop;
+    }
+
+    const finaleEl = document.getElementById("finale");
+    if (finaleEl) {
+      cachedFinaleTop = finaleEl.offsetTop;
+      cachedFinaleHeight = finaleEl.offsetHeight || 600;
     }
 
     layoutRingCards();
@@ -178,21 +238,56 @@
   /* --------------------------------------------------------------------------
      2. FILM GRAIN CANVAS GENERATOR
      -------------------------------------------------------------------------- */
+  // Cached Vignette + Subtle Grain Offscreen Overlay (composited inside canvas in ~0.15ms vs 15ms DOM layer)
+  let vignetteOverlay = null;
+  let grainPattern = null;
+
   function initFilmGrain() {
     if (isMobileLayout() || window.matchMedia("(pointer: coarse)").matches) return;
-    const grainCanvas = document.getElementById("grain-canvas");
-    if (!grainCanvas) return;
-    const gCtx = grainCanvas.getContext("2d");
-    const w = 256;
-    const h = 256;
-    const imgData = gCtx.createImageData(w, h);
+    const off = document.createElement("canvas");
+    off.width = 128;
+    off.height = 128;
+    const gCtx = off.getContext("2d");
+    const imgData = gCtx.createImageData(128, 128);
     const buffer32 = new Uint32Array(imgData.data.buffer);
-    const len = buffer32.length;
-    for (let i = 0; i < len; i++) {
+    for (let i = 0; i < buffer32.length; i++) {
       const noise = (Math.random() * 255) | 0;
-      buffer32[i] = (45 << 24) | (noise << 16) | (noise << 8) | noise;
+      buffer32[i] = (8 << 24) | (noise << 16) | (noise << 8) | noise;
     }
     gCtx.putImageData(imgData, 0, 0);
+    grainPattern = ctx.createPattern(off, "repeat");
+    buildVignetteOverlay();
+  }
+
+  function buildVignetteOverlay() {
+    const cw = canvas ? canvas.width : 0;
+    const ch = canvas ? canvas.height : 0;
+    if (!cw || !ch) return;
+    if (!vignetteOverlay) vignetteOverlay = document.createElement("canvas");
+    if (vignetteOverlay.width === cw && vignetteOverlay.height === ch) return;
+    vignetteOverlay.width = cw;
+    vignetteOverlay.height = ch;
+    const vCtx = vignetteOverlay.getContext("2d");
+    vCtx.clearRect(0, 0, cw, ch);
+    if (grainPattern) {
+      vCtx.fillStyle = grainPattern;
+      vCtx.fillRect(0, 0, cw, ch);
+    }
+    const cx = cw * 0.5;
+    const cy = ch * 0.5;
+    const rx = cw * 0.707;
+    const ry = ch * 0.707;
+    vCtx.save();
+    vCtx.translate(cx, cy);
+    vCtx.scale(rx, ry);
+    const g = vCtx.createRadialGradient(0, 0, 0.55, 0, 0, 1.0);
+    g.addColorStop(0, "rgba(0, 0, 0, 0)");
+    g.addColorStop(0.50, "rgba(0, 0, 0, 0.35)");
+    g.addColorStop(0.86, "rgba(0, 0, 0, 0.85)");
+    g.addColorStop(1, "rgba(0, 0, 0, 1)");
+    vCtx.fillStyle = g;
+    vCtx.fillRect(-1.5, -1.5, 3, 3);
+    vCtx.restore();
   }
 
   /* --------------------------------------------------------------------------
@@ -445,8 +540,35 @@
   }
 
   /* --------------------------------------------------------------------------
-     4. CANVAS SIZING, DPR RESOLUTION & UNIFIED BITMAP CACHE
+     4. HARDWARE TIER, 1:1 CANVAS SIZING & ROLLING IMAGEBITMAP WINDOW
      -------------------------------------------------------------------------- */
+  function selectInitialTier() {
+    const mem = navigator.deviceMemory || 0;
+    const cores = navigator.hardwareConcurrency || 0;
+    const mobile = isMobileLayout();
+
+    let tier = "HIGH";
+    if ((mem > 0 && mem <= 2) || (cores > 0 && cores <= 2)) {
+      tier = "LOW";
+    } else if ((mem > 0 && mem <= 4) || (cores > 0 && cores <= 4)) {
+      tier = mobile ? "MEDIUM" : "HIGH";
+    }
+    baseTier = tier;
+    applyTier(tier, QUALITY_TIERS[tier].scale);
+  }
+
+  function applyTier(tierName, nextAdaptiveScale) {
+    const t = QUALITY_TIERS[tierName] || QUALITY_TIERS.HIGH;
+    currentTier = t.name;
+    adaptiveScale = nextAdaptiveScale;
+    const activeScale = typeof nextAdaptiveScale === "number" ? nextAdaptiveScale : t.scale;
+    effectiveWindow = isMobileLayout()
+      ? Math.max(8, Math.round(14 * activeScale))
+      : Math.max(8, Math.round(t.window * (activeScale / t.scale)));
+    perfTierLabel = currentTier;
+    perfCanvasScale = Number(activeScale.toFixed(3));
+  }
+
   function clearFrameBitmaps() {
     bitmapQueue = [];
     for (let i = 0; i < frameBitmaps.length; i++) {
@@ -455,101 +577,164 @@
           if (typeof frameBitmaps[i].close === "function") frameBitmaps[i].close();
         } catch (e) {}
         frameBitmaps[i] = null;
+        frameBitmapKey[i] = "";
       }
       bitmapDecoding[i] = 0;
     }
+    lastRenderKey = "";
   }
 
-  function getMaxBitmapDecodes() {
-    return cachedMobile ? 1 : 2;
+  function getSourceDimensions() {
+    const portrait = isPortraitMedia();
+    return {
+      srcW: portrait ? sourceMobileW : sourceDesktopW,
+      srcH: portrait ? sourceMobileH : sourceDesktopH
+    };
+  }
+
+  function computeDesiredBackingSize() {
+    const { srcW, srcH } = getSourceDimensions();
+    const cssW = Math.max(1, cachedCssW || window.innerWidth);
+    const cssH = Math.max(1, cachedCssH || window.innerHeight);
+    const dprCap = cachedMobile ? 1.5 : 2.0;
+    const dpr = Math.min(window.devicePixelRatio || 1, dprCap);
+    const totalScale = adaptiveScale;
+    perfCanvasScale = totalScale;
+
+    let w = Math.max(240, Math.round(cssW * dpr * totalScale));
+    let h = Math.max(240, Math.round(cssH * dpr * totalScale));
+    const maxW = cachedMobile ? srcW : Math.min(1600, srcW);
+
+    if (w > maxW) {
+      h = Math.max(1, Math.round(h * (maxW / w)));
+      w = maxW;
+    }
+    if (h > srcH) {
+      w = Math.max(1, Math.round(w * (srcH / h)));
+      h = srcH;
+    }
+    return { w, h };
+  }
+
+  function getCoverCropRect(srcW, srcH, dstW, dstH) {
+    const srcAspect = srcW / srcH;
+    const dstAspect = dstW / dstH;
+    let sw = srcW;
+    let sh = srcH;
+    let sx = 0;
+    let sy = 0;
+    if (srcAspect > dstAspect) {
+      sw = Math.max(1, Math.round(srcH * dstAspect));
+      sx = Math.max(0, Math.floor((srcW - sw) * 0.5));
+    } else if (srcAspect < dstAspect) {
+      sh = Math.max(1, Math.round(srcW / dstAspect));
+      sy = Math.max(0, Math.floor((srcH - sh) * 0.5));
+    }
+    return { sx, sy, sw, sh };
   }
 
   function resizeCanvas() {
-    // Match backing canvas strictly to native compact frame dimensions (1:1 drawImage)
-    // while CSS #hero-canvas { width: 100%; height: 100%; object-fit: cover; } handles GPU scaling
-    const portrait = isPortraitMedia();
-    const loaded0 = frames[0] && frames[0].naturalWidth ? frames[0] : null;
-    const w = loaded0 ? loaded0.naturalWidth : (portrait ? 480 : 960);
-    const h = loaded0 ? loaded0.naturalHeight : (portrait ? 854 : 540);
+    const { w, h } = computeDesiredBackingSize();
+    const curW = canvas.width || 0;
+    const curH = canvas.height || 0;
+    const dwFrac = curW > 0 ? Math.abs(w - curW) / curW : 1;
+    const dhFrac = curH > 0 ? Math.abs(h - curH) / curH : 1;
 
-    if (canvas.width !== w || canvas.height !== h) {
+    // Recreate backing store & schedule re-decoded bitmaps ONLY when >5% size change
+    if (dwFrac > 0.05 || dhFrac > 0.05) {
       canvas.width = w;
       canvas.height = h;
-      lastDrawnFrame = -1;
+      currentBitmapKey = `${w}x${h}`;
+      lastRenderKey = "";
+      ctx.imageSmoothingEnabled = false;
+      buildVignetteOverlay();
+      syncRollingWindow(lastDesiredFrameIdx);
+      drawCurrentFrame(true);
     }
-
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "medium";
-    drawCurrentFrame(true);
   }
 
-  function isKeyframeIndex(idx) {
-    return idx === 0 || idx === frameCount - 1 || idx === frameMap[1][1] || (idx % KEYFRAME_STEP === 0);
+  function getWindowBounds(centerIdx) {
+    const total = Math.min(effectiveWindow, frameCount);
+    const forward = Math.round(total * (2 / 3));
+    const backward = total - 1 - forward;
+    let start = centerIdx - (scrollDirection >= 0 ? backward : forward);
+    let end = centerIdx + (scrollDirection >= 0 ? forward : backward);
+    if (start < 0) {
+      end = Math.min(frameCount - 1, end - start);
+      start = 0;
+    }
+    if (end >= frameCount) {
+      start = Math.max(0, start - (end - (frameCount - 1)));
+      end = frameCount - 1;
+    }
+    return { start, end };
   }
 
-  function evictDistantBitmaps(centerIdx) {
-    const cap = cachedMobile ? MAX_BITMAPS_MOBILE : MAX_BITMAPS_DESKTOP;
-    let activeCount = 0;
+  function evictOutsideWindow(start, end) {
     for (let i = 0; i < frameBitmaps.length; i++) {
-      if (frameBitmaps[i]) activeCount++;
-    }
-    if (activeCount <= cap) return;
-
-    // Close farthest non-keyframes first, then farthest keyframes if still over cap
-    for (let pass = 0; pass < 2 && activeCount > cap; pass++) {
-      while (activeCount > cap) {
-        let bestIdx = -1;
-        let bestDist = -1;
-        for (let i = 0; i < frameBitmaps.length; i++) {
-          if (!frameBitmaps[i]) continue;
-          if (pass === 0 && isKeyframeIndex(i)) continue;
-          const dist = Math.abs(i - centerIdx);
-          if (dist > bestDist) {
-            bestDist = dist;
-            bestIdx = i;
-          }
+      if (i < start || i > end) {
+        if (frameBitmaps[i]) {
+          try {
+            if (typeof frameBitmaps[i].close === "function") frameBitmaps[i].close();
+          } catch (e) {}
+          frameBitmaps[i] = null;
+          frameBitmapKey[i] = "";
         }
-        if (bestIdx === -1) break;
-        try {
-          if (typeof frameBitmaps[bestIdx].close === "function") frameBitmaps[bestIdx].close();
-        } catch (e) {}
-        frameBitmaps[bestIdx] = null;
-        activeCount--;
       }
     }
   }
 
   function pumpBitmapQueue() {
-    if (typeof createImageBitmap !== "function") return;
-    const maxDecodes = getMaxBitmapDecodes();
-    while (activeBitmapDecodes < maxDecodes && bitmapQueue.length > 0) {
-      // Pick closest pending frame to the active scroll target first
+    if (!supportsBitmap) return;
+    const limit = QUALITY_TIERS[currentTier] ? QUALITY_TIERS[currentTier].prefetch : 4;
+    const targetKey = currentBitmapKey;
+    const cw = canvas.width;
+    const ch = canvas.height;
+    if (!cw || !ch) return;
+    const { srcW, srcH } = getSourceDimensions();
+    const crop = getCoverCropRect(srcW, srcH, cw, ch);
+
+    while (activeBitmapDecodes < limit && bitmapQueue.length > 0) {
+      // Closest to current scroll position first, biased toward scroll direction
       let bestPos = 0;
-      let bestDist = Infinity;
+      let bestScore = Infinity;
       for (let i = 0; i < bitmapQueue.length; i++) {
-        const d = Math.abs(bitmapQueue[i] - lastDesiredFrameIdx);
-        if (d < bestDist) {
-          bestDist = d;
+        const idx = bitmapQueue[i];
+        const diff = (idx - lastDesiredFrameIdx) * scrollDirection;
+        const score = diff >= 0 ? diff : Math.abs(diff) * 2.2;
+        if (score < bestScore) {
+          bestScore = score;
           bestPos = i;
         }
       }
 
       const index = bitmapQueue.splice(bestPos, 1)[0];
-      const img = frames[index];
-      if (!img || !img.naturalWidth || frameBitmaps[index] || bitmapDecoding[index]) {
-        continue;
-      }
+      const blob = frameBlobs[index];
+      if (!blob || bitmapDecoding[index]) continue;
+      if (frameBitmaps[index] && frameBitmapKey[index] === targetKey) continue;
 
       bitmapDecoding[index] = 1;
       activeBitmapDecodes++;
 
-      createImageBitmap(img)
+      createImageBitmap(blob, crop.sx, crop.sy, crop.sw, crop.sh, {
+        resizeWidth: cw,
+        resizeHeight: ch,
+        resizeQuality: "high"
+      })
         .then((bm) => {
           bitmapDecoding[index] = 0;
           if (!bm) return;
+          if (frameBitmaps[index] && typeof frameBitmaps[index].close === "function") {
+            try { frameBitmaps[index].close(); } catch (e) {}
+          }
           frameBitmaps[index] = bm;
-          evictDistantBitmaps(lastDesiredFrameIdx);
-          if (index === lastDesiredFrameIdx && (lastDrawnFrame !== index || lastDrawnIsPoster)) {
+          frameBitmapKey[index] = targetKey;
+          const { start, end } = getWindowBounds(lastDesiredFrameIdx);
+          evictOutsideWindow(start, end);
+          const f0 = Math.floor(currentFrameFloat);
+          const f1 = Math.min(Math.ceil(currentFrameFloat), frameCount - 1);
+          if (index === f0 || index === f1) {
+            lastRenderKey = "";
             drawCurrentFrame(true);
           }
         })
@@ -558,33 +743,34 @@
         })
         .finally(() => {
           activeBitmapDecodes = Math.max(0, activeBitmapDecodes - 1);
-          pumpBitmapQueue();
+          if (bitmapQueue.length > 0) {
+            setTimeout(pumpBitmapQueue, 16);
+          }
         });
     }
   }
 
-  function queueBitmapDecode(index) {
-    if (typeof createImageBitmap !== "function") return;
-    const img = frames[index];
-    if (!img || !img.naturalWidth || frameBitmaps[index] || bitmapDecoding[index]) return;
-    if (!bitmapQueue.includes(index)) {
-      bitmapQueue.push(index);
-    }
-    pumpBitmapQueue();
-  }
+  function syncRollingWindow(centerIdx) {
+    if (!supportsBitmap) return;
+    const { start, end } = getWindowBounds(centerIdx);
+    evictOutsideWindow(start, end);
 
-  function ensureBitmapsAround(centerIdx) {
-    if (typeof createImageBitmap !== "function") return;
-    // Enqueue missing window strictly bounded via MAX_BITMAP_DECODES worker slots
-    bitmapQueue = bitmapQueue.filter(idx => Math.abs(idx - centerIdx) <= 14 && !frameBitmaps[idx]);
-    const offsets = [0, 1, -1, 2, -2, 3, -3, 4, -4, 5, 6, 7, 8];
-    for (let i = 0; i < offsets.length; i++) {
-      const idx = centerIdx + offsets[i];
-      if (idx >= 0 && idx < frameCount && frames[idx] && frames[idx].naturalWidth && !frameBitmaps[idx] && !bitmapDecoding[idx]) {
-        if (!bitmapQueue.includes(idx)) {
-          bitmapQueue.push(idx);
-        }
-      }
+    const targetKey = currentBitmapKey;
+    bitmapQueue = bitmapQueue.filter(idx => idx >= start && idx <= end && (!frameBitmaps[idx] || frameBitmapKey[idx] !== targetKey));
+
+    // Enqueue exact current + lookahead first, then backward window
+    const enqueue = (idx) => {
+      if (idx < start || idx > end) return;
+      if (!frameBlobs[idx] || bitmapDecoding[idx]) return;
+      if (frameBitmaps[idx] && frameBitmapKey[idx] === targetKey) return;
+      if (!bitmapQueue.includes(idx)) bitmapQueue.push(idx);
+    };
+
+    enqueue(centerIdx);
+    const maxSpan = Math.max(end - centerIdx, centerIdx - start);
+    for (let d = 1; d <= maxSpan; d++) {
+      enqueue(centerIdx + scrollDirection * d);
+      enqueue(centerIdx - scrollDirection * d);
     }
     pumpBitmapQueue();
   }
@@ -616,76 +802,139 @@
     const portrait = isPortraitMedia();
     const template = (portrait && cfg.FRAME_PATH_MOBILE) ? cfg.FRAME_PATH_MOBILE : (cfg.FRAME_PATH || "frames/frame_{n}.webp");
     const num = String(index + 1).padStart(3, "0");
-    return template.replace("{n}", num) + "?v=10";
+    return template.replace("{n}", num) + "?v=11";
   }
 
-  function fetchSingleImage(src, timeoutMs) {
+  function getEstimatedBytesPerFrame() {
+    return isPortraitMedia() ? 29000 : 48000;
+  }
+
+  function updateByteProgress() {
+    let loaded = 0;
+    let total = 0;
+    for (let i = 0; i < frameCount; i++) {
+      loaded += frameReceivedBytes[i];
+      total += frameExpectedBytes[i] || getEstimatedBytesPerFrame();
+    }
+    const rawPct = total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : 0;
+    updatePreloader(rawPct);
+  }
+
+  function fetchFrameBlobWithProgress(index, src, timeoutMs) {
+    return new Promise((resolve, reject) => {
+      const controller = typeof AbortController === "function" ? new AbortController() : null;
+      const timer = setTimeout(() => {
+        if (controller) controller.abort();
+        reject(new Error("Timeout loading " + src));
+      }, timeoutMs);
+
+      fetch(src, controller ? { signal: controller.signal } : undefined)
+        .then(async (res) => {
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          const contentLen = parseInt(res.headers.get("content-length") || "0", 10);
+          if (contentLen > 0) frameExpectedBytes[index] = contentLen;
+
+          if (res.body && typeof res.body.getReader === "function") {
+            const reader = res.body.getReader();
+            const chunks = [];
+            let received = 0;
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              chunks.push(value);
+              received += value.byteLength;
+              frameReceivedBytes[index] = received;
+              if (frameExpectedBytes[index] < received) frameExpectedBytes[index] = received;
+              updateByteProgress();
+            }
+            const blob = new Blob(chunks, { type: "image/webp" });
+            frameReceivedBytes[index] = blob.size;
+            frameExpectedBytes[index] = blob.size;
+            return blob;
+          }
+
+          const blob = await res.blob();
+          frameReceivedBytes[index] = blob.size;
+          frameExpectedBytes[index] = blob.size;
+          updateByteProgress();
+          return blob;
+        })
+        .then((blob) => {
+          clearTimeout(timer);
+          resolve(blob);
+        })
+        .catch((err) => {
+          clearTimeout(timer);
+          reject(err);
+        });
+    });
+  }
+
+  function fetchFallbackImage(index, src, timeoutMs) {
     return new Promise((resolve, reject) => {
       const img = new Image();
       img.decoding = "async";
       let settled = false;
-
       const timer = setTimeout(() => {
         if (!settled) {
           settled = true;
           img.onload = null;
           img.onerror = null;
-          img.src = ""; // abort hung socket cleanly on unstable networks
+          img.src = "";
           reject(new Error("Timeout loading " + src));
         }
       }, timeoutMs);
-
       img.onload = () => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        frameReceivedBytes[index] = frameExpectedBytes[index];
+        updateByteProgress();
         resolve(img);
       };
-
       img.onerror = (err) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
         reject(err || new Error("Failed to load " + src));
       };
-
       img.src = src;
     });
   }
 
-  async function loadImageWithRetry(index, customProfile) {
-    if (frameStatus[index] === 2 && frames[index]) return frames[index];
+  async function loadFrameWithRetry(index, customProfile) {
+    if (frameStatus[index] === 2 && (frameBlobs[index] || frames[index])) return frameBlobs[index] || frames[index];
     if (frameStatus[index] === 1) return null;
 
     const profile = customProfile || getNetworkProfile();
     const src = getFrameUrl(index);
-    const delays = [500, 1200, 2500, 4000];
+    const delays = [400, 1000, 2200, 3500];
     frameStatus[index] = 1;
 
     for (let attempt = 0; attempt <= profile.maxRetries; attempt++) {
       try {
-        const img = await fetchSingleImage(src, profile.timeoutMs);
-        frames[index] = img;
-        frameStatus[index] = 2;
-        framesLoadedCount++;
+        if (supportsBitmap) {
+          const blob = await fetchFrameBlobWithProgress(index, src, profile.timeoutMs);
+          frameBlobs[index] = blob;
+          frameStatus[index] = 2;
+          framesLoadedCount++;
+        } else {
+          const img = await fetchFallbackImage(index, src, profile.timeoutMs);
+          frames[index] = img;
+          frameStatus[index] = 2;
+          framesLoadedCount++;
+        }
 
-        // Recover gracefully if earlier outage forced procedural fallback
         if (isProceduralFallback) {
           isProceduralFallback = false;
           if (devNotice) devNotice.classList.remove("visible");
-          drawCurrentFrame(true);
         }
 
-        if (Math.abs(index - lastDesiredFrameIdx) <= 14 || isKeyframeIndex(index)) {
-          queueBitmapDecode(index);
+        const { start, end } = getWindowBounds(lastDesiredFrameIdx);
+        if (supportsBitmap && index >= start && index <= end) {
+          syncRollingWindow(lastDesiredFrameIdx);
         }
-        if (
-          (index === lastDesiredFrameIdx && (lastDrawnIsPoster || lastDrawnFrame !== index)) ||
-          (Math.abs(index - lastDesiredFrameIdx) <= 4 && lastDrawnFrame !== lastDesiredFrameIdx)
-        ) {
-          drawCurrentFrame(true);
-        }
-        return img;
+        return frameBlobs[index] || frames[index];
       } catch (err) {
         if (attempt < profile.maxRetries) {
           const waitMs = delays[Math.min(attempt, delays.length - 1)];
@@ -698,7 +947,7 @@
     throw new Error("Retries exhausted for frame " + index);
   }
 
-  function buildKeyframePriorityList() {
+  function buildSequentialPriorityList() {
     const added = new Uint8Array(frameCount);
     const list = [];
     const pushUnique = (idx) => {
@@ -707,72 +956,99 @@
         list.push(idx);
       }
     };
-
-    // Pass 1: Keyframes across entire narrative arc + cigar moment + end frame
     pushUnique(0);
-    pushUnique(frameCount - 1);
-    if (Array.isArray(frameMap) && frameMap[1]) pushUnique(frameMap[1][1]);
-    for (let step = 8; step >= 1; step = Math.floor(step / 2)) {
-      for (let i = 0; i < frameCount; i += step) {
-        pushUnique(i);
-      }
+    // Prioritize early hero window then keyframes and remainder so blobs arrive cleanly
+    for (let i = 1; i < Math.min(frameCount, 20); i++) pushUnique(i);
+    for (let step = 4; step >= 1; step = Math.floor(step / 2)) {
+      for (let i = 0; i < frameCount; i += step) pushUnique(i);
     }
     return list;
   }
 
-  function boostFramePriority(centerIdx) {
-    if (centerIdx === lastBoostedTarget || frameStatus[centerIdx] === 2) return;
-    lastBoostedTarget = centerIdx;
-    // Drop stale unstarted scrub requests far behind the user
-    urgentQueue = urgentQueue.filter(idx => Math.abs(idx - centerIdx) <= 10 && frameStatus[idx] === 0);
-    const windowOffsets = [0, 1, -1, 2, -2, 3, 4, -3, 5, 6];
-    for (let i = windowOffsets.length - 1; i >= 0; i--) {
-      const idx = centerIdx + windowOffsets[i];
-      if (idx >= 0 && idx < frameCount) {
-        if (frameStatus[idx] === 3 && navigator.onLine !== false) {
-          frameStatus[idx] = 0;
+  function unlockInitialUI() {
+    if (uiUnlocked) return;
+    uiUnlocked = true;
+    updatePreloader(100);
+    lastRenderKey = "";
+    drawCurrentFrame(true);
+    if (preloader) preloader.classList.add("loaded");
+    document.body.classList.remove("loading-locked");
+    startRafLoop();
+  }
+
+  function initStarterPoster() {
+    const posters = window.AURA_POSTERS;
+    const posterSrc = posters ? (isPortraitMedia() ? posters.mobile : posters.desktop) : null;
+    if (!posterSrc) return;
+    const img = new Image();
+    img.onload = () => {
+      posterImg = img;
+      lastRenderKey = "";
+      drawCurrentFrame(true);
+    };
+    img.src = posterSrc;
+  }
+
+  async function preloadFrames() {
+    initStarterPoster();
+    const est = getEstimatedBytesPerFrame();
+    for (let i = 0; i < frameCount; i++) frameExpectedBytes[i] = est;
+
+    const profile = getNetworkProfile();
+    const queue = buildSequentialPriorityList();
+    const concurrency = profile.tier === "slow" ? 2 : (profile.tier === "medium" ? 4 : 6);
+
+    const worker = async () => {
+      while (queue.length > 0) {
+        const idx = queue.shift();
+        if (idx === undefined) break;
+        try {
+          await loadFrameWithRetry(idx, profile);
+          // Decode frame 0 and rolling window immediately as Blobs land
+          if (idx === 0 && supportsBitmap && frameBlobs[0]) {
+            syncRollingWindow(0);
+          }
+        } catch (e) {}
+      }
+    };
+
+    const workers = [];
+    for (let w = 0; w < concurrency; w++) workers.push(worker());
+    await Promise.allSettled(workers);
+
+    if (framesLoadedCount === 0) {
+      enableProceduralFallback();
+    } else if (supportsBitmap) {
+      syncRollingWindow(lastDesiredFrameIdx);
+      // Pre-decode initial rolling window off-thread so scrolling begins at full 60fps
+      const warmLimit = Math.min(frameCount - 1, Math.round(effectiveWindow * (2 / 3)));
+      const deadline = performance.now() + 700;
+      while (performance.now() < deadline) {
+        let ready = 0;
+        for (let k = 0; k <= warmLimit; k++) {
+          if (frameBitmaps[k]) ready++;
         }
-        if (frameStatus[idx] === 0 && !urgentQueue.includes(idx)) {
-          urgentQueue.unshift(idx);
-        }
+        if (ready >= Math.min(warmLimit + 1, 12) && frameBitmaps[0]) break;
+        await new Promise(r => setTimeout(r, 16));
       }
     }
-    runWorkerPool();
+
+    unlockInitialUI();
+    scheduleFailedRetry();
   }
 
-  function popNextFrameIndex() {
-    while (urgentQueue.length > 0) {
-      const idx = urgentQueue.shift();
-      if (frameStatus[idx] === 0) return idx;
+  function resumePendingFrames() {
+    if (navigator.onLine === false) return;
+    const pending = [];
+    for (let i = 0; i < frameCount; i++) {
+      if (frameStatus[i] === 3 || frameStatus[i] === 0) {
+        frameStatus[i] = 0;
+        pending.push(i);
+      }
     }
-    while (stagedQueue.length > 0) {
-      const idx = stagedQueue.shift();
-      if (frameStatus[idx] === 0) return idx;
-    }
-    return -1;
-  }
-
-  function runWorkerPool() {
+    if (!pending.length) return;
     const profile = getNetworkProfile();
-    while (activeWorkers < profile.concurrency && (urgentQueue.length > 0 || stagedQueue.length > 0)) {
-      activeWorkers++;
-      (async () => {
-        try {
-          while (true) {
-            const idx = popNextFrameIndex();
-            if (idx === -1) break;
-            try {
-              await loadImageWithRetry(idx, getNetworkProfile());
-            } catch (e) {}
-          }
-        } finally {
-          activeWorkers--;
-          if (urgentQueue.length === 0 && stagedQueue.length === 0 && activeWorkers === 0) {
-            scheduleFailedRetry();
-          }
-        }
-      })();
-    }
+    Promise.allSettled(pending.map(idx => loadFrameWithRetry(idx, profile)));
   }
 
   function scheduleFailedRetry() {
@@ -786,91 +1062,10 @@
     }, 3000);
   }
 
-  function resumePendingFrames() {
-    if (navigator.onLine === false) return;
-    let queuedAny = false;
-    for (let i = 0; i < frameCount; i++) {
-      if (frameStatus[i] === 3 || frameStatus[i] === 0) {
-        frameStatus[i] = 0;
-        queuedAny = true;
-      }
-    }
-    if (!queuedAny) return;
-    if (frameStatus[0] !== 2) {
-      urgentQueue.unshift(0);
-    }
-    stagedQueue = buildKeyframePriorityList();
-    runWorkerPool();
-  }
-
-  function unlockInitialUI() {
-    if (uiUnlocked) return;
-    uiUnlocked = true;
-    updatePreloader(100);
-    drawCurrentFrame(true);
-    if (preloader) preloader.classList.add("loaded");
-    document.body.classList.remove("loading-locked");
-    startRafLoop();
-  }
-
-  function runGradualPreloaderSweep() {
-    let startAt = null;
-    const rampMs = 440;
-    const hardMaxMs = 680;
-    let lastShown = -1;
-
-    const tick = (now) => {
-      if (uiUnlocked) return;
-      if (startAt === null) startAt = now;
-      const elapsed = Math.max(0, now - startAt);
-      const frame0Ready = frameStatus[0] === 2 || Boolean(posterImg && posterImg.naturalWidth);
-      const linearT = Math.min(Math.max(elapsed / rampMs, 0), 1);
-      // Smooth 0 -> 100 integer progression without negative initial delta
-      let pct = Math.max(0, Math.floor(linearT * 99));
-      if (linearT >= 1 && (frame0Ready || elapsed >= hardMaxMs)) {
-        pct = 100;
-      }
-      if (pct !== lastShown) {
-        lastShown = pct;
-        updatePreloader(pct);
-      }
-      if (pct >= 100) {
-        unlockInitialUI();
-        return;
-      }
-      requestAnimationFrame(tick);
-    };
-
-    requestAnimationFrame(tick);
-  }
-
-  function initPosterAndReveal() {
-    const posters = window.AURA_POSTERS;
-    const posterSrc = posters ? (isPortraitMedia() ? posters.mobile : posters.desktop) : null;
-    if (posterSrc) {
-      const img = new Image();
-      img.onload = () => {
-        posterImg = img;
-        drawCurrentFrame(true);
-      };
-      img.src = posterSrc;
-    }
-
-    runGradualPreloaderSweep();
-  }
-
-  function preloadFrames() {
-    initPosterAndReveal();
-
-    // Non-blocking HD background streaming: Frame 0 first, then keyframes & fill
-    urgentQueue = [0];
-    stagedQueue = buildKeyframePriorityList();
-    runWorkerPool();
-  }
-
   function updatePreloader(pct) {
-    if (preloaderBar) preloaderBar.style.width = `${pct}%`;
-    if (preloaderStatus) preloaderStatus.textContent = `INITIALIZING ${String(pct).padStart(2, "0")}%`;
+    const safePct = Math.max(0, Math.min(100, Math.round(pct)));
+    if (preloaderBar) preloaderBar.style.width = `${safePct}%`;
+    if (preloaderStatus) preloaderStatus.textContent = `INITIALIZING ${String(safePct).padStart(2, "0")}%`;
   }
 
   function enableProceduralFallback() {
@@ -975,7 +1170,7 @@
   function findNearestLoadedSource(targetIdx) {
     const hasReady = (k) => {
       if (k < 0 || k >= frameCount) return false;
-      if (frameBitmaps[k]) return true;
+      if (supportsBitmap && frameBitmaps[k]) return true;
       return Boolean(frames[k] && frames[k].naturalWidth);
     };
 
@@ -996,19 +1191,119 @@
     }
     if (matchedIdx === -1) {
       if (posterImg && posterImg.naturalWidth) {
-        return { idx: 0, source: posterImg, isPoster: true };
+        return { idx: 0, source: posterImg, isPoster: true, key: "poster" };
       }
       return null;
     }
-    const source = frameBitmaps[matchedIdx] || frames[matchedIdx];
-    return { idx: matchedIdx, source, isPoster: false };
+    const bm = supportsBitmap ? frameBitmaps[matchedIdx] : null;
+    const source = bm || frames[matchedIdx];
+    const key = bm ? (frameBitmapKey[matchedIdx] || "bm") : "img";
+    return { idx: matchedIdx, source, isPoster: false, key };
+  }
+
+  function drawSourceToCanvas(src, cw, ch, alpha) {
+    ctx.globalAlpha = alpha;
+    const sw = src.width || src.naturalWidth;
+    const sh = src.height || src.naturalHeight;
+    if (sw === cw && sh === ch) {
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(src, 0, 0);
+      return;
+    }
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "medium";
+    const scale = Math.max(cw / sw, ch / sh);
+    const dw = sw * scale;
+    const dh = sh * scale;
+    const dx = (cw - dw) * 0.5;
+    const dy = (ch - dh) * 0.5;
+    if ((dx > 0 || dy > 0) && alpha === 1) {
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(0, 0, cw, ch);
+    }
+    ctx.drawImage(src, dx, dy, dw, dh);
+  }
+
+  function countCachedBitmaps() {
+    let count = 0;
+    for (let i = 0; i < frameBitmaps.length; i++) {
+      if (frameBitmaps[i]) count++;
+    }
+    return count;
+  }
+
+  function computePerfMetrics() {
+    const recent = perfDeltas.slice(-60);
+    let p95 = 0;
+    let fps = 0;
+    if (recent.length > 0) {
+      const sorted = recent.slice().sort((a, b) => a - b);
+      p95 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))];
+      const avgDt = recent.reduce((a, b) => a + b, 0) / recent.length;
+      fps = avgDt > 0 ? 1000 / avgDt : 0;
+    }
+    const cachedBitmaps = countCachedBitmaps();
+    const cw = canvas ? canvas.width : 0;
+    const ch = canvas ? canvas.height : 0;
+    const perFrameMB = (cw * ch * 4) / 1048576;
+    const estMemMB = (cachedBitmaps + 1) * perFrameMB;
+    const avgDrawMs = perfDrawCount > 0 ? (perfDrawSumMs / perfDrawCount) : 0;
+    return {
+      fps,
+      p95,
+      lastDrawMs: perfLastDrawMs,
+      avgDrawMs,
+      cachedBitmaps,
+      canvasW: cw,
+      canvasH: ch,
+      scale: perfCanvasScale,
+      tier: perfTierLabel,
+      estMemMB
+    };
+  }
+
+  function initPerfHud() {
+    if (!isPerfEnabled || perfHudEl) return;
+    perfHudEl = document.createElement("aside");
+    perfHudEl.id = "perf-hud";
+    perfHudEl.setAttribute("aria-hidden", "true");
+    perfHudEl.style.cssText = [
+      "position:fixed",
+      "top:10px",
+      "left:10px",
+      "width:268px",
+      "height:98px",
+      "contain:strict",
+      "transform:translateZ(0)",
+      "z-index:9999",
+      "pointer-events:none",
+      "background:rgba(0,0,0,0.82)",
+      "border:1px solid rgba(232,163,61,0.5)",
+      "color:#edeae3",
+      "font:11px/1.45 'IBM Plex Mono', monospace",
+      "padding:8px 10px",
+      "border-radius:4px",
+      "white-space:pre"
+    ].join(";");
+    document.body.appendChild(perfHudEl);
+    updatePerfHud(true);
+  }
+
+  function updatePerfHud(force = false) {
+    if (!perfHudEl) return;
+    const now = performance.now();
+    if (!force && now - perfHudLastPaint < 250) return;
+    perfHudLastPaint = now;
+    const m = computePerfMetrics();
+    perfHudEl.textContent =
+      `FPS: ${m.fps.toFixed(1)} | p95: ${m.p95.toFixed(1)}ms\n` +
+      `draw: ${m.lastDrawMs.toFixed(2)}ms (avg ${m.avgDrawMs.toFixed(2)}ms)\n` +
+      `bitmaps: ${m.cachedBitmaps} | tier: ${m.tier}\n` +
+      `canvas: ${m.canvasW}x${m.canvasH} @ ${m.scale.toFixed(2)}\n` +
+      `mem(est): ${m.estMemMB.toFixed(1)} MB`;
   }
 
   function drawCurrentFrame(force = false) {
-    const targetIdx = Math.max(0, Math.min(Math.round(currentFrameFloat), frameCount - 1));
-    const targetChanged = targetIdx !== lastDesiredFrameIdx;
-    lastDesiredFrameIdx = targetIdx;
-
     const cw = canvas.width;
     const ch = canvas.height;
     if (cw === 0 || ch === 0) return;
@@ -1018,49 +1313,60 @@
 
     if (isProceduralFallback) {
       renderProceduralScene(cw, ch, p);
-      lastDrawnFrame = targetIdx;
-      lastDrawnIsPoster = false;
+      lastRenderKey = `proc:${Math.round(p * 100)}`;
       return;
     }
 
-    if (frameStatus[targetIdx] !== 2 && targetIdx !== lastBoostedTarget) {
-      boostFramePriority(targetIdx);
-    }
-    if (targetChanged || !frameBitmaps[targetIdx]) {
-      ensureBitmapsAround(targetIdx);
+    const f0 = Math.max(0, Math.min(Math.floor(currentFrameFloat), frameCount - 1));
+    const f1 = Math.max(0, Math.min(Math.ceil(currentFrameFloat), frameCount - 1));
+    const tierCfg = QUALITY_TIERS[currentTier] || QUALITY_TIERS.HIGH;
+    const blendAllowed = Boolean(cfg.FRAME_BLEND !== false && tierCfg.blend);
+    const frac = (blendAllowed && f1 !== f0) ? Math.round((currentFrameFloat - f0) * 10) / 10 : 0;
+
+    const targetIdx = frac >= 0.5 ? f1 : f0;
+    if (targetIdx !== lastDesiredFrameIdx) {
+      lastDesiredFrameIdx = targetIdx;
+      syncRollingWindow(targetIdx);
+    } else if (supportsBitmap && !frameBitmaps[targetIdx] && frameBlobs[targetIdx] && !bitmapDecoding[targetIdx]) {
+      syncRollingWindow(targetIdx);
     }
 
-    const resolved = findNearestLoadedSource(targetIdx);
-    if (!resolved || !resolved.source) {
+    const res0 = findNearestLoadedSource(f0);
+    if (!res0 || !res0.source) {
       renderProceduralScene(cw, ch, p);
       return;
     }
 
-    if (!force && resolved.idx === lastDrawnFrame && (!lastDrawnIsPoster || resolved.isPoster)) {
-      return;
-    }
-
-    const src = resolved.source;
-    const srcW = src.naturalWidth || src.width;
-    const srcH = src.naturalHeight || src.height;
-
-    if (srcW && srcH) {
-      const scale = Math.max(cw / srcW, ch / srcH);
-      const dw = srcW * scale;
-      const dh = srcH * scale;
-      const dx = (cw - dw) * 0.5;
-      const dy = (ch - dh) * 0.5;
-
-      if (dx > 0 || dy > 0) {
-        ctx.fillStyle = "#000000";
-        ctx.fillRect(0, 0, cw, ch);
+    let canBlend = false;
+    let res1 = null;
+    if (frac > 0 && frac < 1 && res0.idx === f0) {
+      const bm1 = supportsBitmap ? frameBitmaps[f1] : frames[f1];
+      if (bm1 && (bm1.width === cw || bm1.naturalWidth)) {
+        res1 = { idx: f1, source: bm1, key: supportsBitmap ? (frameBitmapKey[f1] || "bm") : "img" };
+        canBlend = true;
       }
-      ctx.drawImage(src, dx, dy, dw, dh);
-      lastDrawnFrame = resolved.idx;
-      lastDrawnIsPoster = Boolean(resolved.isPoster);
-    } else {
-      renderProceduralScene(cw, ch, p);
     }
+
+    const nextKey = `${res0.idx}:${res0.key}:${canBlend ? `${res1.idx}:${res1.key}:${frac.toFixed(2)}` : "0"}:${cw}x${ch}:${res0.isPoster ? 1 : 0}`;
+    if (!force && nextKey === lastRenderKey) {
+      return;
+    }
+
+    const drawStart = performance.now();
+    drawSourceToCanvas(res0.source, cw, ch, 1.0);
+    if (canBlend && res1) {
+      drawSourceToCanvas(res1.source, cw, ch, frac);
+    }
+    ctx.globalAlpha = 1.0;
+    if (vignetteOverlay) {
+      ctx.drawImage(vignetteOverlay, 0, 0);
+    }
+
+    lastRenderKey = nextKey;
+    const dtDraw = performance.now() - drawStart;
+    perfLastDrawMs = dtDraw;
+    perfDrawSumMs += dtDraw;
+    perfDrawCount++;
   }
 
   /* --------------------------------------------------------------------------
@@ -1095,28 +1401,64 @@
     requestAnimationFrame(rafTick);
   }
 
+  function stepAdaptiveQuality(rawDt) {
+    if (rawDt > 120) return;
+    emaFrameMs = emaFrameMs * 0.9 + rawDt * 0.1;
+
+    if (emaFrameMs > 20) {
+      fastAccumMs = 0;
+      slowAccumMs += rawDt;
+      if (slowAccumMs >= 1000) {
+        slowAccumMs = 0;
+        if (adaptiveScale > 0.86) {
+          applyTier(currentTier === "HIGH" ? "MEDIUM" : currentTier, 0.85);
+          resizeCanvas();
+        } else if (adaptiveScale > 0.71) {
+          applyTier("LOW", 0.70);
+          resizeCanvas();
+        }
+      }
+    } else if (emaFrameMs < 12) {
+      slowAccumMs = 0;
+      fastAccumMs += rawDt;
+      if (fastAccumMs >= 5000 && adaptiveScale < 1.0) {
+        fastAccumMs = 0;
+        const nextScale = adaptiveScale < 0.80 ? 0.85 : 1.0;
+        const nextTier = nextScale >= 1.0 ? baseTier : (baseTier === "LOW" ? "LOW" : "MEDIUM");
+        applyTier(nextTier, nextScale);
+        resizeCanvas();
+      }
+    } else {
+      slowAccumMs = Math.max(0, slowAccumMs - rawDt * 0.5);
+      fastAccumMs = Math.max(0, fastAccumMs - rawDt * 0.5);
+    }
+  }
+
   function rafTick(now) {
-    const dt = Math.min(Math.max(now - lastRafTime, 1), 50);
+    const rawDt = Math.max(now - lastRafTime, 1);
+    const dt = Math.min(rawDt, 50);
     lastRafTime = now;
+    perfDeltas.push(rawDt);
+    if (perfDeltas.length > 180) perfDeltas.shift();
 
-    const { mobile, heroScroll, transition, ringScroll, exit } = getStageMetrics();
+    const { mobile, heroScroll, transition, ringScroll, exit, wrapHeight, vh } = getStageMetrics();
+    const maxS = Math.max(0, wrapHeight - vh);
+    targetS = Math.min(Math.max(latestScrollY - cachedWrapTop, 0), maxS);
 
-    // Snappy frame-coupled scroll smoothing (responsive on wheel and touch)
-    const smoothFactor = mobile ? 0.34 : 0.22;
+    const smoothFactor = mobile ? 0.36 : 0.25;
     const decay = 1 - Math.pow(1 - smoothFactor, dt / 16.67);
     smoothedS += (targetS - smoothedS) * decay;
 
-    if (Math.abs(targetS - smoothedS) < 0.35) {
+    const moving = Math.abs(targetS - smoothedS) >= 0.35;
+    if (!moving) {
       smoothedS = targetS;
     }
 
-    // Derived phases: fully scroll-linked, reversible, zero state flags
     const p = heroScroll > 0 ? Math.min(Math.max(smoothedS / heroScroll, 0), 1) : 1;
     const q = transition > 0 ? Math.min(Math.max((smoothedS - heroScroll) / transition, 0), 1) : 0;
     const r = ringScroll > 0 ? Math.min(Math.max((smoothedS - heroScroll - transition) / ringScroll, 0), 1) : 0;
     const x = exit > 0 ? Math.min(Math.max((smoothedS - heroScroll - transition - ringScroll) / exit, 0), 1) : 0;
 
-    // Phase (a) & (b): Hero video frames, narrative beats, and slow push-in
     const heroHidden = q >= 0.99;
     if (heroLayerEl) {
       const targetVis = heroHidden ? "hidden" : "visible";
@@ -1125,13 +1467,18 @@
       }
     }
     if (!heroHidden) {
-      currentFrameFloat = progressToFrame(p);
+      const nextFloat = progressToFrame(p);
+      if (Math.abs(nextFloat - prevFrameFloat) > 0.001) {
+        scrollDirection = nextFloat >= prevFrameFloat ? 1 : -1;
+        prevFrameFloat = nextFloat;
+      }
+      currentFrameFloat = nextFloat;
+      if (moving) stepAdaptiveQuality(rawDt);
       drawCurrentFrame(isProceduralFallback);
       updateNarrativeBeats(p, q);
       if (canvas) {
-        const heroScale = 1 + q * 0.35;
-        const targetTf = `scale3d(${heroScale.toFixed(4)}, ${heroScale.toFixed(4)}, 1)`;
-        const targetOp = Math.max(0, 1 - q * 1.15).toFixed(3);
+        const targetTf = q > 0 ? `scale3d(${(1 + q * 0.35).toFixed(4)}, ${(1 + q * 0.35).toFixed(4)}, 1)` : "";
+        const targetOp = q > 0 ? Math.max(0, 1 - q * 1.15).toFixed(3) : "";
         if (canvas.style.transform !== targetTf) canvas.style.transform = targetTf;
         if (canvas.style.opacity !== targetOp) canvas.style.opacity = targetOp;
       }
@@ -1139,12 +1486,10 @@
       canvas.style.opacity = "0";
     }
 
-    // Phase (c): 3D Ring emergence, rotation, and exit
     update3DRing(q, r, x);
+    updatePerfHud();
 
-    // Check if settled
-    const isSettled = Math.abs(targetS - smoothedS) < 0.35;
-    if (!isProceduralFallback && isSettled) {
+    if (!isProceduralFallback && !moving) {
       isRafRunning = false;
       return;
     }
@@ -1615,10 +1960,11 @@
 
     function computeRevealFraction() {
       if (reducedMotion) return 1.0;
-      const rect = finaleEl.getBoundingClientRect();
-      const vh = window.innerHeight || 1;
-      const visibleH = Math.max(0, Math.min(rect.bottom, vh) - Math.max(rect.top, 0));
-      const denom = Math.max(1, Math.min(rect.height || vh, vh));
+      const vh = cachedVh || window.innerHeight || 1;
+      const top = cachedFinaleTop - latestScrollY;
+      const bottom = top + cachedFinaleHeight;
+      const visibleH = Math.max(0, Math.min(bottom, vh) - Math.max(top, 0));
+      const denom = Math.max(1, Math.min(cachedFinaleHeight || vh, vh));
       return Math.min(Math.max(visibleH / denom, 0), 1);
     }
 
@@ -1774,16 +2120,11 @@
   }
 
   /* --------------------------------------------------------------------------
-     12. NATIVE SCROLL LISTENER (Zero layout reads, zero scroll-jacking)
+     12. NATIVE SCROLL LISTENER (Pure passive scrollY store, zero layout reads)
      -------------------------------------------------------------------------- */
   function onScroll() {
     if (!pinWrap) return;
-
-    const { wrapHeight, vh } = getStageMetrics();
-    const maxS = Math.max(0, wrapHeight - vh);
-
-    targetS = Math.min(Math.max(window.scrollY - cachedWrapTop, 0), maxS);
-
+    latestScrollY = window.scrollY;
     startRafLoop();
   }
 
@@ -1861,6 +2202,31 @@
     let isVisible = false;
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+    let cursorRafActive = false;
+    function scheduleCursorRaf() {
+      if (cursorRafActive || reducedMotion) return;
+      cursorRafActive = true;
+      requestAnimationFrame(renderCursor);
+    }
+
+    function renderCursor() {
+      if (!isVisible) {
+        cursorRafActive = false;
+        return;
+      }
+      ringX += (mouseX - ringX) * 0.18;
+      ringY += (mouseY - ringY) * 0.18;
+      ring.style.transform = `translate3d(${ringX.toFixed(2)}px, ${ringY.toFixed(2)}px, 0)`;
+      if (Math.abs(mouseX - ringX) < 0.08 && Math.abs(mouseY - ringY) < 0.08) {
+        ringX = mouseX;
+        ringY = mouseY;
+        ring.style.transform = `translate3d(${ringX}px, ${ringY}px, 0)`;
+        cursorRafActive = false;
+        return;
+      }
+      requestAnimationFrame(renderCursor);
+    }
+
     window.addEventListener("mousemove", (e) => {
       mouseX = e.clientX;
       mouseY = e.clientY;
@@ -1873,6 +2239,8 @@
       dot.style.transform = `translate3d(${mouseX}px, ${mouseY}px, 0)`;
       if (reducedMotion) {
         ring.style.transform = `translate3d(${mouseX}px, ${mouseY}px, 0)`;
+      } else {
+        scheduleCursorRaf();
       }
     }, { passive: true });
 
@@ -1880,18 +2248,6 @@
       isVisible = false;
       cursorWrap.classList.remove("active");
     });
-
-    if (!reducedMotion) {
-      function renderCursor() {
-        if (isVisible) {
-          ringX += (mouseX - ringX) * 0.18;
-          ringY += (mouseY - ringY) * 0.18;
-          ring.style.transform = `translate3d(${ringX}px, ${ringY}px, 0)`;
-        }
-        requestAnimationFrame(renderCursor);
-      }
-      requestAnimationFrame(renderCursor);
-    }
 
     document.addEventListener("mouseover", (e) => {
       const target = e.target;
@@ -1957,10 +2313,66 @@
   /* --------------------------------------------------------------------------
      16. INITIALIZATION
      -------------------------------------------------------------------------- */
+  function registerPerfApi() {
+    window.__autoScroll = () => new Promise((resolve) => {
+      const { heroScroll } = getStageMetrics();
+      const durationMs = 10000;
+      const runDeltas = [];
+      perfDrawSumMs = 0;
+      perfDrawCount = 0;
+      window.scrollTo(0, 0);
+      smoothedS = 0;
+      targetS = 0;
+
+      setTimeout(() => {
+        const t0 = performance.now();
+        let prev = t0;
+        const step = (now) => {
+          const elapsed = now - t0;
+          const dt = now - prev;
+          prev = now;
+          if (runDeltas.length > 0 || dt < 200) runDeltas.push(dt);
+          const frac = Math.min(elapsed / durationMs, 1);
+          window.scrollTo(0, Math.round(heroScroll * frac));
+          if (frac < 1) {
+            requestAnimationFrame(step);
+            return;
+          }
+          const sorted = runDeltas.slice().sort((a, b) => a - b);
+          const p95Ms = sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))] : 0;
+          const avgDt = runDeltas.length ? runDeltas.reduce((a, b) => a + b, 0) / runDeltas.length : 0;
+          const over20ms = runDeltas.filter(d => d > 20).length;
+          const maxMs = sorted.length ? sorted[sorted.length - 1] : 0;
+          const m = computePerfMetrics();
+          const summary = {
+            totalFrames: runDeltas.length,
+            over20ms,
+            avgFps: +(avgDt > 0 ? 1000 / avgDt : 0).toFixed(1),
+            p95Ms: +p95Ms.toFixed(1),
+            maxMs: +maxMs.toFixed(1),
+            avgDrawMs: +m.avgDrawMs.toFixed(2),
+            cachedBitmaps: m.cachedBitmaps,
+            canvas: `${m.canvasW}x${m.canvasH}`,
+            scale: +m.scale.toFixed(2),
+            tier: m.tier,
+            estMemMB: +m.estMemMB.toFixed(1)
+          };
+          console.log(`[AURA perf] __autoScroll finished: ${over20ms}/${summary.totalFrames} frames > 20ms`, summary);
+          updatePerfHud(true);
+          resolve(summary);
+        };
+        requestAnimationFrame(step);
+      }, 150);
+    });
+  }
+
   function init() {
     registerOfflineCache();
     initFilmGrain();
     hydrateContent();
+    selectInitialTier();
+    initPerfHud();
+    registerPerfApi();
     syncStageLayout(true);
     initRingControls();
     initSmokeFinale();
@@ -1968,17 +2380,16 @@
     initAuraCursor();
     initHeroLantern();
 
+    let resizeTimer = 0;
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("online", resumePendingFrames, { passive: true });
     window.addEventListener("resize", () => {
-      syncStageLayout(false);
-      onScroll();
-    }, { passive: true });
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener("resize", () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
         syncStageLayout(false);
-      }, { passive: true });
-    }
+        onScroll();
+      }, 150);
+    }, { passive: true });
     window.addEventListener("orientationchange", () => {
       setTimeout(() => {
         syncStageLayout(true);

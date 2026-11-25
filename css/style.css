@@ -59,15 +59,9 @@ body.loading-locked {
   height: 100vh;
 }
 
-/* --- Film Grain Overlay --- */
+/* --- Film Grain Overlay (single static background texture when active) --- */
 #grain-canvas {
-  position: fixed;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 999;
-  opacity: 0.032;
+  display: none !important;
 }
 
 @media (max-width: 768px), (pointer: coarse) {
@@ -151,7 +145,6 @@ body.loading-locked {
   font-size: 0.75rem;
   color: var(--accent);
   letter-spacing: 0.05em;
-  backdrop-filter: blur(8px);
   box-shadow: 0 0 12px rgba(232, 163, 61, 0.15);
   display: none;
 }
@@ -200,24 +193,13 @@ body.loading-locked {
   object-fit: cover;
   object-position: center;
   display: block;
-  mix-blend-mode: normal;
   transform-origin: 50% 38%;
   will-change: transform, opacity;
 }
 
-/* Vignette overlay to seamlessly blend edges into pure black */
+/* Vignette handled directly inside canvas draw buffer to prevent extra full-screen GPU layer blending */
 .hero-vignette {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: radial-gradient(
-    ellipse at 50% 50%,
-    transparent 55%,
-    rgba(0, 0, 0, 0.35) 78%,
-    rgba(0, 0, 0, 0.85) 94%,
-    #000000 100%
-  );
-  z-index: 2;
+  display: none !important;
 }
 
 /* Ambient match / lantern light tracking cursor */
@@ -228,13 +210,12 @@ body.loading-locked {
   z-index: 2;
   background: radial-gradient(
     circle 280px at var(--mouse-x, -500px) var(--mouse-y, -500px),
-    rgba(232, 163, 61, 0.08) 0%,
-    rgba(232, 163, 61, 0.02) 45%,
+    rgba(232, 163, 61, 0.06) 0%,
+    rgba(232, 163, 61, 0.015) 45%,
     transparent 70%
   );
   opacity: 0;
   transition: opacity 400ms ease;
-  mix-blend-mode: screen;
 }
 
 #pin.mouse-active .hero-lantern {
@@ -247,7 +228,7 @@ body.loading-locked {
   }
 }
 
-/* Scroll-linked dynamic typography overlay */
+/* Scroll-linked dynamic typography overlay (zero full-screen quad promotion) */
 .hero-overlay {
   position: absolute;
   inset: 0;
@@ -257,8 +238,6 @@ body.loading-locked {
   flex-direction: column;
   justify-content: center;
   padding: clamp(2rem, 6vw, 6rem);
-  transform: translateZ(0);
-  contain: layout style;
 }
 
 /* Individual narrative beats — clean transitions, ZERO blur on video */
@@ -283,6 +262,7 @@ body.loading-locked {
   opacity: 1;
   visibility: visible;
   transform: translateY(0);
+  will-change: transform, opacity;
   transition: opacity var(--duration-base) var(--ease),
               transform var(--duration-base) var(--ease),
               visibility 0s;
@@ -463,6 +443,7 @@ body.loading-locked {
   opacity: 1;
   visibility: visible;
   transform: translateY(0);
+  will-change: transform, opacity;
   transition: opacity var(--duration-base) var(--ease),
               transform var(--duration-base) var(--ease),
               visibility 0s;
@@ -557,6 +538,7 @@ body.loading-locked {
   opacity: 1;
   visibility: visible;
   transform: translateY(-50%);
+  will-change: transform, opacity;
   transition: opacity var(--duration-base) var(--ease),
               transform var(--duration-base) var(--ease),
               visibility 0s;

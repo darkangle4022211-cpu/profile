@@ -75,17 +75,17 @@ if [ -f "$CLIP_B" ]; then
     -c:v libx264 -preset slow -crf 18 -pix_fmt yuv420p \
     "$FINAL_VIDEO"
 else
-  targetFps=15
-  cigarFrames=$(awk -v a="$durA" -v fps="$targetFps" 'BEGIN { printf "%d\n", int(a * 0.75 * fps + 0.5) }')
+  targetFps=24
+  cigarFrames=$(awk -v a="$durA" -v fps="$targetFps" 'BEGIN { printf "%d\n", int(a * 0.75 * fps) }')
   echo "Clip A duration: ${durA}s"
-  echo "Target FPS:      ${targetFps} fps (15 fps HIGH profile, cigar ~frame ${cigarFrames})"
+  echo "Target FPS:      ${targetFps} fps (24 fps native color HIGH profile, cigar ~frame ${cigarFrames})"
 
   echo ""
   echo "Step 1/3: Conforming single clip into $FINAL_VIDEO..."
   ffmpeg -y \
     -i "$CLIP_A" \
     -filter_complex "\
-      [0:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=${targetFps},setsar=1[v]" \
+      [0:v]scale='min(iw,1600)':-2,fps=${targetFps},setsar=1[v]" \
     -map "[v]" \
     -an \
     -c:v libx264 -preset slow -crf 18 -pix_fmt yuv420p \
@@ -98,18 +98,18 @@ echo "Step 2/3: Cleaning existing frame sequences..."
 rm -f frames/frame_*.webp frames-m/frame_*.webp
 mkdir -p frames frames-m
 
-# Step 3: Export HIGH profile Desktop & Mobile WebP frames (never upscaling)
+# Step 3: Export HIGH profile Desktop & Mobile WebP frames (native color, never upscaling)
 echo ""
-echo "Step 3/3 (a): Generating HIGH desktop frames (max 1600px wide, quality 80, libwebp method/compression 6, curves & watermark mask)..."
+echo "Step 3/3 (a): Generating HIGH desktop frames (max 1600px wide, quality 82, libwebp method/compression 6)..."
 ffmpeg -y -i "$FINAL_VIDEO" \
-  -vf "scale='min(iw,1600)':-2,drawbox=x=iw-iw*${WATERMARK_W_PCT}:y=ih-ih*${WATERMARK_H_PCT}:w=iw*${WATERMARK_W_PCT}:h=ih*${WATERMARK_H_PCT}:color=black:t=fill,curves=all='0/0 0.06/0 1/1'" \
-  -c:v libwebp -quality 80 -preset picture -compression_level 6 \
+  -vf "scale='min(iw,1600)':-2,drawbox=x=iw-iw*${WATERMARK_W_PCT}:y=ih-ih*${WATERMARK_H_PCT}:w=iw*${WATERMARK_W_PCT}:h=ih*${WATERMARK_H_PCT}:color=black:t=fill" \
+  -c:v libwebp -quality 82 -preset picture -compression_level 6 \
   frames/frame_%03d.webp
 
-echo "Step 3/3 (b): Generating HIGH mobile frames (9:16 crop, max 1280px tall, quality 78, curves)..."
+echo "Step 3/3 (b): Generating HIGH mobile frames (9:16 crop, max 1280px tall, quality 80)..."
 ffmpeg -y -i "$FINAL_VIDEO" \
-  -vf "crop=trunc(ih*9/32)*2:ih,scale=-2:'min(ih,1280)',curves=all='0/0 0.06/0 1/1'" \
-  -c:v libwebp -quality 78 -preset picture -compression_level 6 \
+  -vf "crop=trunc(ih*9/32)*2:ih,scale=-2:'min(ih,1280)'" \
+  -c:v libwebp -quality 80 -preset picture -compression_level 6 \
   frames-m/frame_%03d.webp
 
 # Count output frames and probe exported dimensions

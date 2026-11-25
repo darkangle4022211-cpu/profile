@@ -733,7 +733,7 @@
           evictOutsideWindow(start, end);
           const f0 = Math.floor(currentFrameFloat);
           const f1 = Math.min(Math.ceil(currentFrameFloat), frameCount - 1);
-          if (index === f0 || index === f1) {
+          if (index === f0 || index === f1 || Math.abs(index - lastDesiredFrameIdx) <= 4) {
             lastRenderKey = "";
             drawCurrentFrame(true);
           }
@@ -802,22 +802,31 @@
     const portrait = isPortraitMedia();
     const template = (portrait && cfg.FRAME_PATH_MOBILE) ? cfg.FRAME_PATH_MOBILE : (cfg.FRAME_PATH || "frames/frame_{n}.webp");
     const num = String(index + 1).padStart(3, "0");
-    return template.replace("{n}", num) + "?v=11";
+    return template.replace("{n}", num) + "?v=12";
   }
 
-  function getEstimatedBytesPerFrame() {
-    return isPortraitMedia() ? 29000 : 48000;
-  }
+  let blobQueue = [];
+  let blobBoostTarget = -1;
 
-  function updateByteProgress() {
+  function updateStartupByteProgress(rampStartMs) {
+    if (uiUnlocked) return;
     let loaded = 0;
     let total = 0;
     for (let i = 0; i < frameCount; i++) {
       loaded += frameReceivedBytes[i];
       total += frameExpectedBytes[i] || getEstimatedBytesPerFrame();
     }
-    const rawPct = total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : 0;
-    updatePreloader(rawPct);
+    const elapsed = Math.max(0, performance.now() - rampStartMs);
+    const timePct = Math.min(99, (elapsed / 520) * 100);
+    const bytePct = total > 0 ? Math.min(100, (loaded / total) * 100) : 0;
+    updatePreloader(Math.max(timePct, bytePct));
+  }
+
+  let preloaderRampStart = 0;
+
+  function updateByteProgress() {
+    if (uiUnlocked) return;
+    updateStartupByteProgress(preloaderRampStart || performance.now());
   }
 
   function fetchFrameBlobWithProgress(index, src, timeoutMs) {
@@ -947,6 +956,10 @@
     throw new Error("Retries exhausted for frame " + index);
   }
 
+  function getEstimatedBytesPerFrame() {
+    return isPortraitMedia() ? 40000 : 62000;
+  }
+
   function buildSequentialPriorityList() {
     const added = new Uint8Array(frameCount);
     const list = [];
@@ -957,12 +970,27 @@
       }
     };
     pushUnique(0);
-    // Prioritize early hero window then keyframes and remainder so blobs arrive cleanly
-    for (let i = 1; i < Math.min(frameCount, 20); i++) pushUnique(i);
-    for (let step = 4; step >= 1; step = Math.floor(step / 2)) {
+    pushUnique(frameCount - 1);
+    if (Array.isArray(frameMap) && frameMap[1]) pushUnique(frameMap[1][1]);
+    // Keyframes first so instant scrub works across the entire timeline immediately on slow connections
+    for (let step = 8; step >= 1; step = Math.floor(step / 2)) {
       for (let i = 0; i < frameCount; i += step) pushUnique(i);
     }
     return list;
+  }
+
+  function boostBlobPriority(centerIdx) {
+    if (centerIdx === blobBoostTarget || frameStatus[centerIdx] === 2) return;
+    blobBoostTarget = centerIdx;
+    const offsets = [0, 1, -1, 2, -2, 3, 4, -3, 5, 6];
+    for (let i = offsets.length - 1; i >= 0; i--) {
+      const idx = centerIdx + offsets[i];
+      if (idx >= 0 && idx < frameCount && frameStatus[idx] === 0) {
+        const pos = blobQueue.indexOf(idx);
+        if (pos !== -1) blobQueue.splice(pos, 1);
+        blobQueue.unshift(idx);
+      }
+    }
   }
 
   function unlockInitialUI() {
@@ -994,19 +1022,36 @@
     const est = getEstimatedBytesPerFrame();
     for (let i = 0; i < frameCount; i++) frameExpectedBytes[i] = est;
 
+    preloaderRampStart = performance.now();
     const profile = getNetworkProfile();
-    const queue = buildSequentialPriorityList();
+    blobQueue = buildSequentialPriorityList();
     const concurrency = profile.tier === "slow" ? 2 : (profile.tier === "medium" ? 4 : 6);
 
+    // Smooth gradual 00% -> 100% ramp driven cleanly over ~520ms (never stalls on slow 3G/2G)
+    const rampTick = () => {
+      if (uiUnlocked) return;
+      const elapsed = Math.max(0, performance.now() - preloaderRampStart);
+      updateStartupByteProgress(preloaderRampStart);
+      const frame0Ready = Boolean(frameBitmaps[0] || frames[0] || (posterImg && posterImg.naturalWidth));
+      if (elapsed >= 540 && (frameBitmaps[0] || (frameStatus[0] === 2 && !supportsBitmap) || (frame0Ready && elapsed >= 850))) {
+        unlockInitialUI();
+        return;
+      }
+      requestAnimationFrame(rampTick);
+    };
+    requestAnimationFrame(rampTick);
+
     const worker = async () => {
-      while (queue.length > 0) {
-        const idx = queue.shift();
+      while (blobQueue.length > 0) {
+        const idx = blobQueue.shift();
         if (idx === undefined) break;
         try {
           await loadFrameWithRetry(idx, profile);
-          // Decode frame 0 and rolling window immediately as Blobs land
           if (idx === 0 && supportsBitmap && frameBlobs[0]) {
             syncRollingWindow(0);
+          }
+          if (idx === lastDesiredFrameIdx && supportsBitmap && frameBlobs[idx]) {
+            syncRollingWindow(idx);
           }
         } catch (e) {}
       }
@@ -1014,27 +1059,11 @@
 
     const workers = [];
     for (let w = 0; w < concurrency; w++) workers.push(worker());
-    await Promise.allSettled(workers);
-
-    if (framesLoadedCount === 0) {
-      enableProceduralFallback();
-    } else if (supportsBitmap) {
-      syncRollingWindow(lastDesiredFrameIdx);
-      // Pre-decode initial rolling window off-thread so scrolling begins at full 60fps
-      const warmLimit = Math.min(frameCount - 1, Math.round(effectiveWindow * (2 / 3)));
-      const deadline = performance.now() + 700;
-      while (performance.now() < deadline) {
-        let ready = 0;
-        for (let k = 0; k <= warmLimit; k++) {
-          if (frameBitmaps[k]) ready++;
-        }
-        if (ready >= Math.min(warmLimit + 1, 12) && frameBitmaps[0]) break;
-        await new Promise(r => setTimeout(r, 16));
-      }
-    }
-
-    unlockInitialUI();
-    scheduleFailedRetry();
+    Promise.allSettled(workers).then(() => {
+      if (framesLoadedCount === 0) enableProceduralFallback();
+      unlockInitialUI();
+      scheduleFailedRetry();
+    });
   }
 
   function resumePendingFrames() {
@@ -1317,13 +1346,19 @@
       return;
     }
 
-    const f0 = Math.max(0, Math.min(Math.floor(currentFrameFloat), frameCount - 1));
-    const f1 = Math.max(0, Math.min(Math.ceil(currentFrameFloat), frameCount - 1));
     const tierCfg = QUALITY_TIERS[currentTier] || QUALITY_TIERS.HIGH;
     const blendAllowed = Boolean(cfg.FRAME_BLEND !== false && tierCfg.blend);
+    const f0 = Math.max(0, Math.min(Math.floor(currentFrameFloat), frameCount - 1));
+    const f1 = Math.max(0, Math.min(Math.ceil(currentFrameFloat), frameCount - 1));
     const frac = (blendAllowed && f1 !== f0) ? Math.round((currentFrameFloat - f0) * 10) / 10 : 0;
 
-    const targetIdx = frac >= 0.5 ? f1 : f0;
+    const targetIdx = blendAllowed
+      ? (frac >= 0.5 ? f1 : f0)
+      : Math.max(0, Math.min(Math.round(currentFrameFloat), frameCount - 1));
+
+    if (frameStatus[targetIdx] !== 2) {
+      boostBlobPriority(targetIdx);
+    }
     if (targetIdx !== lastDesiredFrameIdx) {
       lastDesiredFrameIdx = targetIdx;
       syncRollingWindow(targetIdx);
@@ -1331,7 +1366,7 @@
       syncRollingWindow(targetIdx);
     }
 
-    const res0 = findNearestLoadedSource(f0);
+    const res0 = findNearestLoadedSource(blendAllowed ? f0 : targetIdx);
     if (!res0 || !res0.source) {
       renderProceduralScene(cw, ch, p);
       return;

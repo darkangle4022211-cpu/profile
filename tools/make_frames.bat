@@ -56,10 +56,10 @@ echo Analyzing source clips...
 for /f "delims=" %%i in ('ffprobe -v error -show_entries format^=duration -of default^=noprint_wrappers^=1:nokey^=1 "%CLIP_A%"') do set "DUR_A=%%i"
 
 if not exist "%CLIP_B%" (
-    for /f %%a in ('powershell -NoProfile -Command "$a=[double]'%DUR_A%'; $c=[math]::Round($a * 0.75 * 15); Write-Output $c"') do set "CIGAR_START=%%a"
-    set "TARGET_FPS=15"
-    echo Clip A duration: %DUR_A%s ^(Single clip 15 fps HIGH profile^)
-    ffmpeg -y -i "%CLIP_A%" -filter_complex "[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=15,setsar=1[v]" -map "[v]" -an -c:v libx264 -preset slow -crf 18 -pix_fmt yuv420p "%FINAL_VIDEO%"
+    for /f %%a in ('powershell -NoProfile -Command "$a=[double]'%DUR_A%'; $c=[math]::Floor($a * 0.75 * 24); Write-Output $c"') do set "CIGAR_START=%%a"
+    set "TARGET_FPS=24"
+    echo Clip A duration: %DUR_A%s ^(Single clip 24 fps native color HIGH profile^)
+    ffmpeg -y -i "%CLIP_A%" -filter_complex "[0:v]scale='min(iw,1600)':-2,fps=24,setsar=1[v]" -map "[v]" -an -c:v libx264 -preset slow -crf 18 -pix_fmt yuv420p "%FINAL_VIDEO%"
 ) else (
     for /f "delims=" %%i in ('ffprobe -v error -show_entries format^=duration -of default^=noprint_wrappers^=1:nokey^=1 "%CLIP_B%"') do set "DUR_B=%%i"
     for /f "tokens=1,2,3 delims= " %%a in ('powershell -NoProfile -Command "$a=[double]'%DUR_A%'; $b=[double]'%DUR_B%'; $tot=$a+$b; $fps=15; if ($tot -gt 9.0) { $fps=[math]::Floor(150 / $tot); if ($fps -lt 10) { $fps=10 } }; $cigar=[math]::Round($a * $fps); Write-Output ('{0:F2} {1} {2}' -f $tot, $fps, $cigar)"') do (
@@ -82,14 +82,14 @@ if exist frames-m\frame_*.webp del /q frames-m\frame_*.webp
 if not exist frames mkdir frames
 if not exist frames-m mkdir frames-m
 
-REM Step 3: Export HIGH profile Desktop & Mobile WebP frames (never upscaling)
+REM Step 3: Export HIGH profile Desktop & Mobile WebP frames (native color, never upscaling)
 echo.
-echo Step 3/3 (a): Generating HIGH desktop frames (max 1600px wide, quality 80, curves & watermark mask)...
-ffmpeg -y -i "%FINAL_VIDEO%" -vf "scale='min(iw,1600)':-2,drawbox=x=iw-iw*%WATERMARK_W_PCT%:y=ih-ih*%WATERMARK_H_PCT%:w=iw*%WATERMARK_W_PCT%:h=ih*%WATERMARK_H_PCT%:color=black:t=fill,curves=all='0/0 0.06/0 1/1'" -c:v libwebp -quality 80 -preset picture -compression_level 6 frames\frame_%%03d.webp
+echo Step 3/3 (a): Generating HIGH desktop frames (max 1600px wide, quality 82, watermark mask)...
+ffmpeg -y -i "%FINAL_VIDEO%" -vf "scale='min(iw,1600)':-2,drawbox=x=iw-iw*%WATERMARK_W_PCT%:y=ih-ih*%WATERMARK_H_PCT%:w=iw*%WATERMARK_W_PCT%:h=ih*%WATERMARK_H_PCT%:color=black:t=fill" -c:v libwebp -quality 82 -preset picture -compression_level 6 frames\frame_%%03d.webp
 
 echo.
-echo Step 3/3 (b): Generating HIGH mobile frames (9:16 crop, max 1280px tall, quality 78, curves)...
-ffmpeg -y -i "%FINAL_VIDEO%" -vf "crop=trunc(ih*9/32)*2:ih,scale=-2:'min(ih,1280)',curves=all='0/0 0.06/0 1/1'" -c:v libwebp -quality 78 -preset picture -compression_level 6 frames-m\frame_%%03d.webp
+echo Step 3/3 (b): Generating HIGH mobile frames (9:16 crop, max 1280px tall, quality 80)...
+ffmpeg -y -i "%FINAL_VIDEO%" -vf "crop=trunc(ih*9/32)*2:ih,scale=-2:'min(ih,1280)'" -c:v libwebp -quality 80 -preset picture -compression_level 6 frames-m\frame_%%03d.webp
 
 REM Count frames and probe dimensions using PowerShell
 for /f %%c in ('powershell -NoProfile -Command "(Get-ChildItem frames\frame_*.webp).Count"') do set "FRAME_COUNT=%%c"

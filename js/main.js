@@ -230,7 +230,7 @@
 
     const finaleEl = document.getElementById("finale");
     if (finaleEl) {
-      cachedFinaleTop = finaleEl.offsetTop;
+      cachedFinaleTop = Math.round(finaleEl.getBoundingClientRect().top + (window.scrollY || window.pageYOffset || 0));
       cachedFinaleHeight = finaleEl.offsetHeight || 600;
     }
 
@@ -1832,7 +1832,8 @@
     let smokeRafId = 0;
     let lastTickTime = performance.now();
     let lastDrawTime = 0;
-    let elapsedTime = reducedMotion ? 2.4 : 0;
+    let elapsedTime = reducedMotion ? 11.5 : 10.0;
+    let finaleEnterAt = 0;
 
     // Pointer state in UV (y=0 bottom, y=1 top)
     let targetMouseX = 0.5;
@@ -1966,11 +1967,11 @@
           density = smoothstep(0.35, 0.95, density);
 
           // Vertical rise shape dissolving completely before top edge
-          float h = clamp(u_height * mix(0.55, 1.0, u_reveal), 0.10, 0.90);
+          float h = clamp(u_height * mix(0.24, 1.0, u_reveal), 0.10, 0.90);
           float vFade = 1.0 - smoothstep(0.0, h, uv.y);
           float shape = vFade * vFade;
 
-          float revealAlpha = mix(0.25, 1.0, u_reveal);
+          float revealAlpha = mix(0.15, 1.0, u_reveal);
           float a = clamp(density * shape * u_intensity * revealAlpha * 1.35, 0.0, 0.75);
 
           vec3 amberCol = vec3(1.0, 0.627, 0.200);
@@ -2054,21 +2055,25 @@
     }
     resizeSmokeFn = resizeSmokeCanvas;
 
-    function computeRevealFraction() {
+    function computeRevealFraction(nowMs) {
       if (reducedMotion) return 1.0;
       const vh = cachedVh || window.innerHeight || 1;
       const top = cachedFinaleTop - latestScrollY;
       const bottom = top + cachedFinaleHeight;
       const visibleH = Math.max(0, Math.min(bottom, vh) - Math.max(top, 0));
       const denom = Math.max(1, Math.min(cachedFinaleHeight || vh, vh));
-      return Math.min(Math.max(visibleH / denom, 0), 1);
+      const scrollFrac = Math.min(Math.max(visibleH / denom, 0), 1);
+      if (!finaleEnterAt) finaleEnterAt = nowMs || performance.now();
+      const rawEnter = Math.min(Math.max(((nowMs || performance.now()) - finaleEnterAt) / 1500, 0), 1);
+      const enterEase = 1 - Math.pow(1 - rawEnter, 3);
+      return scrollFrac * enterEase;
     }
 
-    function drawSmokeFrame() {
+    function drawSmokeFrame(nowMs) {
       if (!gl || !program || useFallback || gl.isContextLost()) return;
       const w = smokeCanvas.width || 1;
       const h = smokeCanvas.height || 1;
-      const reveal = computeRevealFraction();
+      const reveal = computeRevealFraction(nowMs);
 
       gl.useProgram(program);
       gl.clearColor(0, 0, 0, 0);
@@ -2117,12 +2122,13 @@
       const wantPush = (pointerInside && (now - lastMoveAt < 180)) ? 1.0 : 0.0;
       pushVal += (wantPush - pushVal) * 0.08;
 
-      drawSmokeFrame();
+      drawSmokeFrame(now);
     }
 
     function startSmokeRaf() {
       if (reducedMotion || useFallback || smokeRafId || !isFinaleInView || document.hidden) return;
       lastTickTime = performance.now();
+      if (!finaleEnterAt) finaleEnterAt = lastTickTime;
       smokeRafId = requestAnimationFrame(smokeTick);
     }
 
@@ -2198,6 +2204,7 @@
             closingLineEl.classList.add("is-visible");
           }
           if (isFinaleInView) {
+            if (!finaleEnterAt) finaleEnterAt = performance.now();
             ensureWebGLInitialized();
             startSmokeRaf();
           } else {

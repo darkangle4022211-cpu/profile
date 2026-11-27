@@ -826,12 +826,12 @@
     const downlink = conn && typeof conn.downlink === "number" ? conn.downlink : 0;
 
     if (saveData || eff === "slow-2g" || eff === "2g" || (downlink > 0 && downlink < 1.2)) {
-      return { concurrency: 2, timeoutMs: 22000, maxRetries: 4, tier: "slow" };
+      return { concurrency: 3, timeoutMs: 18000, maxRetries: 4, tier: "slow" };
     }
     if (eff === "3g" || (downlink > 0 && downlink < 3.5)) {
-      return { concurrency: 3, timeoutMs: 16000, maxRetries: 4, tier: "medium" };
+      return { concurrency: isMobileLayout() ? 6 : 8, timeoutMs: 8000, maxRetries: 4, tier: "medium" };
     }
-    return { concurrency: isMobileLayout() ? 4 : 6, timeoutMs: 12000, maxRetries: 3, tier: "fast" };
+    return { concurrency: isMobileLayout() ? 10 : 12, timeoutMs: 5000, maxRetries: 3, tier: "fast" };
   }
 
   function getFrameUrl(index) {
@@ -843,6 +843,7 @@
 
   let blobQueue = [];
   let blobBoostTarget = -1;
+  let initialSkeletonRemaining = 0;
 
   function updateStartupByteProgress(rampStartMs) {
     if (uiUnlocked) return;
@@ -1006,12 +1007,14 @@
       }
     };
     pushUnique(0);
-    // Opening smooth pair cadence + full-timeline 8-frame anchors first (~18 files)
-    for (let i = 2; i < Math.min(14, frameCount); i += 2) pushUnique(i);
-    if (Array.isArray(frameMap) && frameMap[1]) pushUnique(frameMap[1][1]);
-    pushUnique(frameCount - 1);
+    // Evenly spaced full-timeline anchors + opening pairs FIRST (~17 files),
+    // preventing late frames from downloading ahead of intermediate anchors.
+    for (let i = 2; i <= 8; i += 2) pushUnique(i);
+    if (frameCount > 12) pushUnique(12);
     for (let i = 16; i < frameCount; i += 8) pushUnique(i);
-    // Immediately upgrade opening Beats 0-1 to full 24fps, then progressive fill passes
+    pushUnique(frameCount - 1);
+    initialSkeletonRemaining = list.length;
+    // Upgrade opening Beats 0-1 to 24fps, then progressive fill passes
     for (let i = 1; i < Math.min(16, frameCount); i++) pushUnique(i);
     for (let step = 4; step >= 1; step = Math.floor(step / 2)) {
       for (let i = 0; i < frameCount; i += step) pushUnique(i);
@@ -1020,10 +1023,10 @@
   }
 
   function boostBlobPriority(centerIdx) {
-    if (framesLoadedCount >= frameCount || centerIdx === blobBoostTarget) return;
+    if (initialSkeletonRemaining > 0 || framesLoadedCount >= frameCount || centerIdx === blobBoostTarget) return;
     blobBoostTarget = centerIdx;
     const dir = scrollDirection >= 0 ? 1 : -1;
-    const offsets = [0, dir, dir * 2, dir * 3, dir * 4, dir * 5, dir * 6, -dir, -dir * 2];
+    const offsets = [0, dir, dir * 2, dir * 4];
     for (let i = offsets.length - 1; i >= 0; i--) {
       const idx = centerIdx + offsets[i];
       if (idx >= 0 && idx < frameCount && frameStatus[idx] === 0) {
@@ -1066,7 +1069,8 @@
     preloaderRampStart = performance.now();
     const profile = getNetworkProfile();
     blobQueue = buildSequentialPriorityList();
-    const concurrency = profile.tier === "slow" ? 2 : (profile.tier === "medium" ? 4 : 6);
+    const targetConc = profile.concurrency || 6;
+    const initialConc = Math.min(3, targetConc);
 
     // Smooth gradual 00% -> 100% ramp driven cleanly over ~520ms (never stalls on slow 3G/2G)
     const rampTick = () => {
@@ -1082,25 +1086,45 @@
     };
     requestAnimationFrame(rampTick);
 
+    let frame0DoneResolve = null;
+    const frame0ReadyPromise = new Promise((res) => { frame0DoneResolve = res; });
+
     const worker = async () => {
       while (blobQueue.length > 0) {
         const idx = blobQueue.shift();
         if (idx === undefined) break;
+        if (initialSkeletonRemaining > 0) initialSkeletonRemaining--;
         try {
           await loadFrameWithRetry(idx, profile);
-          if (idx === 0 && supportsBitmap && frameBlobs[0]) {
-            syncRollingWindow(0);
+          if (idx === 0) {
+            if (frame0DoneResolve) { frame0DoneResolve(); frame0DoneResolve = null; }
+            if (supportsBitmap && frameBlobs[0]) syncRollingWindow(0);
           }
           if (idx === lastDesiredFrameIdx && supportsBitmap && frameBlobs[idx]) {
             syncRollingWindow(idx);
           }
-        } catch (e) {}
+        } catch (e) {
+          if (idx === 0 && frame0DoneResolve) { frame0DoneResolve(); frame0DoneResolve = null; }
+        }
       }
     };
 
     const workers = [];
-    for (let w = 0; w < concurrency; w++) workers.push(worker());
-    Promise.allSettled(workers).then(() => {
+    for (let w = 0; w < initialConc; w++) workers.push(worker());
+
+    // Scale up HTTP/2 stream concurrency right after Frame 0 lands (or after 450ms)
+    const rampUpPromise = Promise.race([
+      frame0ReadyPromise,
+      new Promise((res) => setTimeout(res, 450))
+    ]).then(() => {
+      const extra = [];
+      for (let w = initialConc; w < targetConc && blobQueue.length > 0; w++) {
+        extra.push(worker());
+      }
+      return Promise.allSettled(extra);
+    });
+
+    Promise.allSettled([...workers, rampUpPromise]).then(() => {
       if (framesLoadedCount === 0) enableProceduralFallback();
       unlockInitialUI();
       scheduleFailedRetry();

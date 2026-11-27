@@ -4,16 +4,16 @@
    network-first (with cache fallback) for HTML/CSS/JS shell assets.
    ========================================================================== */
 
-const CACHE_NAME = "aura-cache-v29";
+const CACHE_NAME = "aura-cache-v30";
 
 const CORE_SHELL = [
   "./",
   "./index.html",
-  "./css/style.css?v=29",
-  "./frames/manifest.js?v=29",
-  "./js/poster.js?v=29",
-  "./js/config.js?v=29",
-  "./js/main.js?v=29",
+  "./css/style.css?v=30",
+  "./frames/manifest.js?v=30",
+  "./js/poster.js?v=30",
+  "./js/config.js?v=30",
+  "./js/main.js?v=30",
   "./assets/icons/clipper.svg",
   "./assets/icons/hyperdrain.png",
   "./assets/icons/pulsar-audio.png",

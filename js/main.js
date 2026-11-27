@@ -723,7 +723,7 @@
   function pumpBitmapQueue() {
     if (!supportsBitmap) return;
     const tierLimit = QUALITY_TIERS[currentTier] ? QUALITY_TIERS[currentTier].prefetch : 3;
-    const limit = cachedMobile ? Math.min(tierLimit, 2) : tierLimit;
+    const limit = cachedMobile ? 1 : tierLimit;
     const targetKey = currentBitmapKey;
     const cw = canvas.width;
     const ch = canvas.height;
@@ -1006,11 +1006,14 @@
       }
     };
     pushUnique(0);
-    for (let i = 1; i < Math.min(14, frameCount); i++) pushUnique(i);
+    // Opening smooth pair cadence + full-timeline 8-frame anchors first (~18 files)
+    for (let i = 2; i < Math.min(14, frameCount); i += 2) pushUnique(i);
     if (Array.isArray(frameMap) && frameMap[1]) pushUnique(frameMap[1][1]);
     pushUnique(frameCount - 1);
-    // Keyframes first across the remaining timeline, then progressive fill passes
-    for (let step = 8; step >= 1; step = Math.floor(step / 2)) {
+    for (let i = 16; i < frameCount; i += 8) pushUnique(i);
+    // Immediately upgrade opening Beats 0-1 to full 24fps, then progressive fill passes
+    for (let i = 1; i < Math.min(16, frameCount); i++) pushUnique(i);
+    for (let step = 4; step >= 1; step = Math.floor(step / 2)) {
       for (let i = 0; i < frameCount; i += step) pushUnique(i);
     }
     return list;
@@ -1101,12 +1104,19 @@
       if (framesLoadedCount === 0) enableProceduralFallback();
       unlockInitialUI();
       scheduleFailedRetry();
-      // Defer offline Service Worker registration until frame downloads settle so fresh-open
-      // scrolling never contends with SW install fetches or 94 CacheStorage writes.
+      // Register offline SW only when idle and not mid-scroll so install/claim
+      // never interrupts active scrolling on mobile devices.
+      const scheduleSw = () => {
+        if (isRafRunning) {
+          setTimeout(scheduleSw, 2000);
+          return;
+        }
+        registerOfflineCache();
+      };
       if (typeof requestIdleCallback === "function") {
-        requestIdleCallback(() => registerOfflineCache(), { timeout: 4000 });
+        requestIdleCallback(scheduleSw, { timeout: 5000 });
       } else {
-        setTimeout(registerOfflineCache, 1500);
+        setTimeout(scheduleSw, 2500);
       }
     });
   }

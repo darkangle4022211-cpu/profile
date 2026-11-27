@@ -879,7 +879,7 @@
           const contentLen = parseInt(res.headers.get("content-length") || "0", 10);
           if (contentLen > 0) frameExpectedBytes[index] = contentLen;
 
-          if (res.body && typeof res.body.getReader === "function") {
+          if (!uiUnlocked && res.body && typeof res.body.getReader === "function") {
             const reader = res.body.getReader();
             const chunks = [];
             let received = 0;
@@ -901,7 +901,7 @@
           const blob = await res.blob();
           frameReceivedBytes[index] = blob.size;
           frameExpectedBytes[index] = blob.size;
-          updateByteProgress();
+          if (!uiUnlocked) updateByteProgress();
           return blob;
         })
         .then((blob) => {
@@ -1006,9 +1006,10 @@
       }
     };
     pushUnique(0);
-    pushUnique(frameCount - 1);
+    for (let i = 1; i < Math.min(14, frameCount); i++) pushUnique(i);
     if (Array.isArray(frameMap) && frameMap[1]) pushUnique(frameMap[1][1]);
-    // Keyframes first so instant scrub works across the entire timeline immediately on slow connections
+    pushUnique(frameCount - 1);
+    // Keyframes first across the remaining timeline, then progressive fill passes
     for (let step = 8; step >= 1; step = Math.floor(step / 2)) {
       for (let i = 0; i < frameCount; i += step) pushUnique(i);
     }
@@ -1016,9 +1017,10 @@
   }
 
   function boostBlobPriority(centerIdx) {
-    if (centerIdx === blobBoostTarget || frameStatus[centerIdx] === 2) return;
+    if (framesLoadedCount >= frameCount || centerIdx === blobBoostTarget) return;
     blobBoostTarget = centerIdx;
-    const offsets = [0, 1, -1, 2, -2, 3, 4, -3, 5, 6];
+    const dir = scrollDirection >= 0 ? 1 : -1;
+    const offsets = [0, dir, dir * 2, dir * 3, dir * 4, dir * 5, dir * 6, -dir, -dir * 2];
     for (let i = offsets.length - 1; i >= 0; i--) {
       const idx = centerIdx + offsets[i];
       if (idx >= 0 && idx < frameCount && frameStatus[idx] === 0) {
@@ -1099,6 +1101,13 @@
       if (framesLoadedCount === 0) enableProceduralFallback();
       unlockInitialUI();
       scheduleFailedRetry();
+      // Defer offline Service Worker registration until frame downloads settle so fresh-open
+      // scrolling never contends with SW install fetches or 94 CacheStorage writes.
+      if (typeof requestIdleCallback === "function") {
+        requestIdleCallback(() => registerOfflineCache(), { timeout: 4000 });
+      } else {
+        setTimeout(registerOfflineCache, 1500);
+      }
     });
   }
 
@@ -1412,9 +1421,7 @@
       ? (frac >= 0.5 ? f1 : f0)
       : Math.max(0, Math.min(Math.round(currentFrameFloat), frameCount - 1));
 
-    if (frameStatus[targetIdx] !== 2) {
-      boostBlobPriority(targetIdx);
-    }
+    boostBlobPriority(targetIdx);
     if (targetIdx !== lastDesiredFrameIdx) {
       lastDesiredFrameIdx = targetIdx;
       syncRollingWindow(targetIdx);
@@ -2470,7 +2477,6 @@
   }
 
   function init() {
-    registerOfflineCache();
     initFilmGrain();
     hydrateContent();
     selectInitialTier();

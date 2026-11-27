@@ -769,7 +769,12 @@
           evictExcessBitmaps(lastDesiredFrameIdx);
           if (!isRafRunning) {
             const needCatchup = !hasRenderedRealFrame || lastDrawnIdx !== lastDesiredFrameIdx;
-            if (index === lastDesiredFrameIdx || (needCatchup && Math.abs(index - lastDesiredFrameIdx) <= 4)) {
+            const movesCloser = lastDrawnIdx < 0 || (
+              lastDesiredFrameIdx > lastDrawnIdx
+                ? (index > lastDrawnIdx && index <= lastDesiredFrameIdx)
+                : (index < lastDrawnIdx && index >= lastDesiredFrameIdx)
+            );
+            if (index === lastDesiredFrameIdx || (needCatchup && movesCloser)) {
               scheduleBitmapDrawRaf();
             }
           }
@@ -845,6 +850,15 @@
   let blobBoostTarget = -1;
   let initialSkeletonRemaining = 0;
 
+  const isReloadNav = (() => {
+    try {
+      const nav = performance.getEntriesByType && performance.getEntriesByType("navigation")[0];
+      return Boolean(nav && nav.type === "reload");
+    } catch (e) {
+      return false;
+    }
+  })();
+
   function updateStartupByteProgress(rampStartMs) {
     if (uiUnlocked) return;
     let loaded = 0;
@@ -854,7 +868,8 @@
       total += frameExpectedBytes[i] || getEstimatedBytesPerFrame();
     }
     const elapsed = Math.max(0, performance.now() - rampStartMs);
-    const timePct = Math.min(99, (elapsed / 520) * 100);
+    const rampMs = isReloadNav ? 90 : 520;
+    const timePct = Math.min(99, (elapsed / rampMs) * 100);
     const bytePct = total > 0 ? Math.min(100, (loaded / total) * 100) : 0;
     updatePreloader(Math.max(timePct, bytePct));
   }
@@ -874,7 +889,7 @@
         reject(new Error("Timeout loading " + src));
       }, timeoutMs);
 
-      fetch(src, controller ? { signal: controller.signal } : undefined)
+      fetch(src, controller ? { signal: controller.signal, cache: "force-cache" } : { cache: "force-cache" })
         .then(async (res) => {
           if (!res.ok) throw new Error("HTTP " + res.status);
           const contentLen = parseInt(res.headers.get("content-length") || "0", 10);
@@ -1040,11 +1055,13 @@
   function unlockInitialUI() {
     if (uiUnlocked) return;
     uiUnlocked = true;
+    if (preloader) preloader.classList.add("loaded");
+    document.body.classList.remove("loading-locked");
+    latestScrollY = window.scrollY || window.pageYOffset || 0;
+    syncStageLayout(false);
     updatePreloader(100);
     lastRenderKey = "";
     drawCurrentFrame(true);
-    if (preloader) preloader.classList.add("loaded");
-    document.body.classList.remove("loading-locked");
     startRafLoop();
   }
 
@@ -1078,7 +1095,9 @@
       const elapsed = Math.max(0, performance.now() - preloaderRampStart);
       updateStartupByteProgress(preloaderRampStart);
       const frame0Ready = Boolean(frameBitmaps[0] || frames[0] || (posterImg && posterImg.naturalWidth));
-      if (elapsed >= 540 && (frameBitmaps[0] || (frameStatus[0] === 2 && !supportsBitmap) || (frame0Ready && elapsed >= 850))) {
+      const minRampMs = isReloadNav ? 110 : 540;
+      const fallbackMs = isReloadNav ? 180 : 850;
+      if (elapsed >= minRampMs && (frameBitmaps[0] || (frameStatus[0] === 2 && !supportsBitmap) || (frame0Ready && elapsed >= fallbackMs))) {
         unlockInitialUI();
         return;
       }
@@ -1128,19 +1147,19 @@
       if (framesLoadedCount === 0) enableProceduralFallback();
       unlockInitialUI();
       scheduleFailedRetry();
-      // Register offline SW only when idle and not mid-scroll so install/claim
-      // never interrupts active scrolling on mobile devices.
-      const scheduleSw = () => {
+      // Retire legacy SW registrations and CacheStorage only when idle and not
+      // mid-scroll so native HTTP disk cache serves reloads without SW overhead.
+      const scheduleCleanup = () => {
         if (isRafRunning) {
-          setTimeout(scheduleSw, 2000);
+          setTimeout(scheduleCleanup, 2000);
           return;
         }
-        registerOfflineCache();
+        cleanupOfflineCache();
       };
       if (typeof requestIdleCallback === "function") {
-        requestIdleCallback(scheduleSw, { timeout: 5000 });
+        requestIdleCallback(scheduleCleanup, { timeout: 5000 });
       } else {
-        setTimeout(scheduleSw, 2500);
+        setTimeout(scheduleCleanup, 2500);
       }
     });
   }
@@ -2443,14 +2462,16 @@
     });
   }
 
-  function registerOfflineCache() {
-    if (
-      "serviceWorker" in navigator &&
-      (location.protocol === "https:" ||
-        location.hostname === "localhost" ||
-        location.hostname === "127.0.0.1")
-    ) {
-      navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(() => {});
+  function cleanupOfflineCache() {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.getRegistrations()
+        .then((regs) => Promise.all(regs.map((r) => r.unregister())))
+        .catch(() => {});
+    }
+    if ("caches" in window) {
+      caches.keys()
+        .then((keys) => Promise.all(keys.filter((k) => k.startsWith("aura-cache-")).map((k) => caches.delete(k))))
+        .catch(() => {});
     }
   }
 
